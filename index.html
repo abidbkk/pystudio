@@ -908,6 +908,40 @@ $("#btnSignOut").onclick = async () => {
 renderWatches();
 startWorker();
 initAccounts();
+
+// ---------- Apps Script bridge ----------
+// When PyStudio is opened through the school's Apps Script link, that page shows this
+// app in an iframe and passes calls to the server (which knows the signed-in Google user).
+const bridge = (() => {
+  const SCRIPT_ORIGIN = /^https:\/\/[a-z0-9-]+-script\.googleusercontent\.com$/;
+  let origin = null, n = 0, onReady;
+  const ready = new Promise(r => onReady = r), calls = new Map();
+  addEventListener("message", e => {
+    const m = e.data;
+    if (e.source !== window.parent || !SCRIPT_ORIGIN.test(e.origin) || !m || m.pystudio !== 1) return;
+    if (m.type === "hello") { origin = e.origin; onReady(); }
+    else if (m.type === "reply" && calls.has(m.id)) {
+      const p = calls.get(m.id); calls.delete(m.id);
+      m.ok ? p.resolve(m.result) : p.reject(new Error(m.error || "Server error"));
+    }
+  });
+  if (window.parent !== window) window.parent.postMessage({ pystudio: 1, type: "hello" }, "*");
+  return {
+    ready,
+    call(fn, ...args) {
+      return ready.then(() => new Promise((resolve, reject) => {
+        const id = ++n;
+        calls.set(id, { resolve, reject });
+        window.parent.postMessage({ pystudio: 1, type: "call", id, fn, args }, origin);
+      }));
+    },
+  };
+})();
+
+bridge.ready.then(() => bridge.call("whoAmI")).then(email => {
+  $("#acct").classList.remove("hidden"); $("#btnSignIn").classList.add("hidden");
+  $("#who").textContent = "Signed in as " + (email || "(unknown)");
+}).catch(err => { $("#acct").classList.remove("hidden"); $("#who").textContent = "Sign-in check failed: " + err.message; });
 </script>
 </body>
 </html>

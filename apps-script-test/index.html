@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; }
+    iframe { border: 0; width: 100%; height: 100%; display: block; }
+  </style>
+</head>
+<body>
+  <!-- PyStudio itself lives on GitHub Pages; this page only adds the school sign-in. -->
+  <iframe id="app" src="https://abidbkk.github.io/pystudio/" allow="clipboard-read; clipboard-write"></iframe>
+  <script>
+    const APP_ORIGIN = "https://abidbkk.github.io";
+    const ALLOWED = ["whoAmI"];   // server functions PyStudio may call
+    const app = document.getElementById("app");
+
+    function send(msg) { app.contentWindow.postMessage(Object.assign({ pystudio: 1 }, msg), APP_ORIGIN); }
+
+    window.addEventListener("message", e => {
+      const m = e.data;
+      if (e.origin !== APP_ORIGIN || e.source !== app.contentWindow || !m || m.pystudio !== 1) return;
+      if (m.type === "hello") send({ type: "hello" });
+      else if (m.type === "call") {
+        if (!ALLOWED.includes(m.fn)) return send({ type: "reply", id: m.id, ok: false, error: "Not allowed: " + m.fn });
+        google.script.run
+          .withSuccessHandler(result => send({ type: "reply", id: m.id, ok: true, result }))
+          .withFailureHandler(err => send({ type: "reply", id: m.id, ok: false, error: err.message }))
+          [m.fn].apply(null, m.args || []);
+      }
+    });
+  </script>
+</body>
+</html>
