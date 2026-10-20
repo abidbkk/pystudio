@@ -1,0 +1,722 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PyStudio</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/material-darker.min.css">
+<style>
+:root{
+  --bg:#f4f6f9; --panel:#ffffff; --border:#dde2e9; --text:#1c2230; --muted:#667085;
+  --accent:#2563eb; --accent-hover:#1d4ed8; --accent-text:#fff;
+  --btn:#eef1f5; --btn-hover:#e1e6ee; --danger:#dc2626;
+  --cur:#fff1a8; --ret:#d3f5dd; --exc:#fde0e0; --changed:#fff1a8; --bp:#e5484d;
+  --ok:#16a34a; --mono:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#15171c; --panel:#1d2027; --border:#2e333d; --text:#e6e8ec; --muted:#9aa3b2;
+    --accent:#3b82f6; --accent-hover:#60a5fa; --btn:#2a2f39; --btn-hover:#353b47; --danger:#f87171;
+    --cur:#5a4b12; --ret:#15452a; --exc:#5a1f1f; --changed:#5a4b12; --bp:#f0595e; --ok:#4ade80;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#15171c; --panel:#1d2027; --border:#2e333d; --text:#e6e8ec; --muted:#9aa3b2;
+  --accent:#3b82f6; --accent-hover:#60a5fa; --btn:#2a2f39; --btn-hover:#353b47; --danger:#f87171;
+  --cur:#5a4b12; --ret:#15452a; --exc:#5a1f1f; --changed:#5a4b12; --bp:#f0595e; --ok:#4ade80;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--text);font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;display:flex;flex-direction:column;overflow:hidden}
+button{font:inherit;color:inherit;background:var(--btn);border:1px solid var(--border);border-radius:6px;padding:5px 10px;cursor:pointer;white-space:nowrap}
+button:hover:not(:disabled){background:var(--btn-hover)}
+button:disabled{opacity:.45;cursor:default}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-text)}
+button.primary:hover:not(:disabled){background:var(--accent-hover)}
+button.danger{color:var(--danger)}
+input,textarea{font:inherit;color:var(--text);background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:5px 8px}
+header{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--panel);border-bottom:1px solid var(--border);flex-wrap:wrap}
+header h1{font-size:16px;margin:0 12px 0 0;font-weight:650}
+#fname{font-family:var(--mono);color:var(--muted);margin-right:auto}
+#status{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px}
+#status::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--muted)}
+#status.ok::before{background:var(--ok)} #status.busy::before{background:#f59e0b} #status.err::before{background:var(--danger)}
+main{flex:1;min-height:0;display:grid;grid-template-columns:190px minmax(0,1fr) 360px;grid-template-rows:minmax(0,1fr) 210px;grid-template-areas:"files editor debug" "files io debug"}
+aside#files{grid-area:files;background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column;min-height:0}
+.ptitle{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);padding:10px 12px 6px;font-weight:600;display:flex;align-items:center;justify-content:space-between}
+#filelist{list-style:none;margin:0;padding:0 6px;overflow:auto;flex:1}
+#filelist li{padding:5px 8px;border-radius:5px;cursor:pointer;font-family:var(--mono);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#filelist li:hover{background:var(--btn)}
+#filelist li.active{background:var(--accent);color:var(--accent-text)}
+#filelist input{width:100%;font-family:var(--mono);font-size:13px;padding:3px 5px}
+.filebtns{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:8px}
+.filebtns button{font-size:12px;padding:4px 6px}
+#editor{grid-area:editor;min-height:0;position:relative}
+.CodeMirror{height:100%;font-family:var(--mono);font-size:14px}
+.cm-s-default.CodeMirror{background:var(--panel)}
+.bp-gutter{width:18px}
+.bp-dot{width:11px;height:11px;border-radius:50%;background:var(--bp);margin:3px 0 0 4px}
+.CodeMirror-gutter-wrapper{cursor:pointer}
+.cm-cur{background:var(--cur)} .cm-ret{background:var(--ret)} .cm-exc{background:var(--exc)}
+#banner{position:absolute;top:8px;right:12px;z-index:5;background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:4px 10px;font-size:12px;color:var(--muted);display:none}
+#io{grid-area:io;display:grid;grid-template-columns:minmax(0,1fr);border-top:1px solid var(--border);background:var(--panel);min-height:0}
+#io>div{display:flex;flex-direction:column;min-height:0}
+#io>div+div{border-left:1px solid var(--border)}
+#output{flex:1;margin:0;padding:4px 12px 10px;overflow:auto;font-family:var(--mono);font-size:13px;white-space:pre-wrap;word-break:break-word}
+#output .err{color:var(--danger)}
+#output .note{color:var(--muted);font-style:italic}
+#conin{border:0;border-bottom:2px solid var(--accent);border-radius:0;outline:none;background:transparent;font:inherit;color:var(--accent);padding:0 2px;width:min(60%,320px)}
+#output .wait{color:var(--muted);font-style:italic;font-size:12px}
+aside#debug{grid-area:debug;background:var(--panel);border-left:1px solid var(--border);display:flex;flex-direction:column;min-height:0}
+#dbgbar{display:flex;flex-wrap:wrap;gap:4px;padding:0 10px 8px}
+#dbgbar button{padding:4px 7px;font-size:12px}
+#stepinfo{margin:0 10px 6px;padding:6px 8px;border-radius:6px;background:var(--btn);font-size:12.5px;min-height:20px}
+#timeline{margin:0 10px 6px;width:calc(100% - 20px)}
+#dbgscroll{flex:1;overflow:auto;padding-bottom:12px}
+.frame{margin:0 10px 8px;border:1px solid var(--border);border-radius:6px;overflow:hidden}
+.frame h3{margin:0;font-size:12.5px;padding:5px 8px;background:var(--btn);font-family:var(--mono);font-weight:600;display:flex;justify-content:space-between}
+.frame h3 span{color:var(--muted);font-weight:400}
+.frame.top{border-color:var(--accent)}
+table{border-collapse:collapse;width:100%;font-family:var(--mono);font-size:12.5px}
+td{padding:3px 8px;border-top:1px solid var(--border);vertical-align:top}
+td.n{width:30%;font-weight:600} td.t{width:18%;color:var(--muted)} td.v{word-break:break-all}
+tr.chg td{background:var(--changed)}
+.empty{color:var(--muted);font-size:12px;padding:4px 8px}
+#watchform{display:flex;gap:6px;padding:0 10px 6px}
+#watchform input{flex:1;min-width:0;font-family:var(--mono);font-size:12.5px}
+#watches .x{cursor:pointer;color:var(--muted);text-align:right;width:20px}
+#idle{padding:4px 12px;color:var(--muted);font-size:13px}
+#idle kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--border);border-radius:4px;padding:0 4px;background:var(--btn)}
+#idle li{margin-bottom:4px}
+.hidden{display:none!important}
+@media (max-width:980px){
+  body{overflow:auto}
+  main{grid-template-columns:1fr;grid-template-rows:auto 55vh auto auto;grid-template-areas:"files" "editor" "io" "debug"}
+  aside#files{border-right:0;border-bottom:1px solid var(--border)}
+  #filelist{display:flex;flex-wrap:wrap;gap:4px;max-height:90px}
+  .filebtns{grid-template-columns:repeat(5,auto);justify-content:start}
+  #io{grid-template-columns:1fr;min-height:260px}
+  #io>div+div{border-left:0;border-top:1px solid var(--border)}
+  aside#debug{border-left:0;border-top:1px solid var(--border);min-height:400px}
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>🐍 PyStudio</h1>
+  <span id="fname"></span>
+  <button id="btnRun" class="primary" title="Run (Ctrl+Enter)" disabled>▶ Run</button>
+  <button id="btnDebug" title="Debug (F5)" disabled>🐞 Debug</button>
+  <button id="btnStop" class="danger" title="Stop the program" disabled>■ Stop</button>
+  <span id="status" class="busy">Loading Python…</span>
+</header>
+<main>
+  <aside id="files">
+    <div class="ptitle">My files</div>
+    <ul id="filelist"></ul>
+    <div class="filebtns">
+      <button id="fNew">+ New</button>
+      <button id="fRename">Rename</button>
+      <button id="fUpload">Upload</button>
+      <button id="fDownload">Download</button>
+      <button id="fDelete" class="danger" style="grid-column:span 2">Delete</button>
+    </div>
+    <input type="file" id="upload" accept=".py,.txt" multiple class="hidden">
+  </aside>
+
+  <div id="editor"><div id="banner"></div></div>
+
+  <section id="io">
+    <div>
+      <div class="ptitle">Output <button id="btnClear" style="font-size:11px;padding:1px 8px">Clear</button></div>
+      <pre id="output"></pre>
+    </div>
+  </section>
+
+  <aside id="debug">
+    <div class="ptitle">Debugger</div>
+    <div id="idle">
+      <ul style="padding-left:18px;margin:0">
+        <li>Click left of a line number to set a <b style="color:var(--bp)">●</b> breakpoint.</li>
+        <li>Press <b>🐞 Debug</b> <kbd>F5</kbd> — the program pauses at the first breakpoint.</li>
+        <li>Step with the buttons, or <kbd>F10</kbd> over, <kbd>F11</kbd> into, <kbd>Shift+F11</kbd> out, <kbd>F9</kbd> back.</li>
+        <li>You can step <b>backwards</b> and drag the timeline.</li>
+        <li>Changed variables are <span style="background:var(--changed);padding:0 3px">highlighted</span>.</li>
+      </ul>
+    </div>
+    <div id="dbgpanel" class="hidden">
+      <div id="dbgbar">
+        <button data-act="start" title="Go to first step">⏮</button>
+        <button data-act="rcont" title="Back to previous breakpoint">◀◀</button>
+        <button data-act="back" title="Step back (F9)">↶ Back</button>
+        <button data-act="over" title="Step over (F10)">↷ Over</button>
+        <button data-act="into" title="Step into (F11)">↓ Into</button>
+        <button data-act="out" title="Step out (Shift+F11)">↑ Out</button>
+        <button data-act="cont" title="Continue to next breakpoint (F5)">▶▶</button>
+        <button data-act="end" title="Go to end">⏭</button>
+        <button data-act="stop" class="danger" title="Stop debugging">✕</button>
+      </div>
+      <div id="stepinfo"></div>
+      <input type="range" id="timeline" min="0" value="0">
+    </div>
+    <div id="dbgscroll">
+      <div class="ptitle">Watch</div>
+      <form id="watchform"><input id="watchin" placeholder="expression, e.g. total / 2" spellcheck="false"><button>Add</button></form>
+      <div class="frame" style="border-style:dashed"><table id="watches"></table></div>
+      <div id="varsec" class="hidden">
+        <div class="ptitle">Variables &amp; call stack</div>
+        <div id="vars"></div>
+      </div>
+    </div>
+  </aside>
+</main>
+
+<!-- Python side: runs student code and records every step with sys.settrace -->
+<script type="text/python" id="py-src">
+import sys, io, json, builtins, traceback, random
+
+MAX_STEPS = 5000
+FILENAME = "<student>"
+
+def _short(v, limit=120):
+    try:
+        r = repr(v)
+    except Exception as e:
+        r = f"<repr failed: {e}>"
+    return r if len(r) <= limit else r[:limit - 1] + "…"
+
+def _vars(d):
+    out = []
+    for k, v in d.items():
+        if k.startswith("__") or type(v).__name__ == "module":
+            continue
+        out.append([k, type(v).__name__, _short(v)])
+    return out
+
+def _stack(frame):
+    frames = []
+    f = frame
+    while f is not None:
+        if f.f_code.co_filename == FILENAME:
+            frames.append(f)
+        f = f.f_back
+    frames.reverse()
+    return [{"func": "(global)" if f.f_code.co_name == "<module>" else f.f_code.co_name + "()",
+             "line": f.f_lineno, "vars": _vars(f.f_locals)} for f in frames]
+
+class _StepLimit(BaseException):
+    pass
+
+class _NeedInput(BaseException):
+    pass
+
+def run(code, answers_json, watches_json, seed, trace):
+    # The program is re-run from the start each time the student answers an input();
+    # earlier answers are replayed from `lines`, and the fixed random seed keeps runs identical.
+    watches = json.loads(watches_json)
+    steps = []
+    out = io.StringIO()
+    lines = json.loads(answers_json)
+    pos = [0]
+    halted = [False]
+
+    def _input(prompt=""):
+        out.write(str(prompt))
+        if pos[0] >= len(lines):
+            halted[0] = True
+            raise _NeedInput()
+        v = lines[pos[0]]
+        pos[0] += 1
+        out.write(v + "\n")
+        return v
+
+    def _watch(frame):
+        res = []
+        for w in watches:
+            try:
+                res.append(_short(eval(w, frame.f_globals, frame.f_locals), 200))
+            except Exception as e:
+                res.append("⚠ " + type(e).__name__ + ": " + str(e))
+        return res
+
+    def tracer(frame, event, arg):
+        if halted[0] or frame.f_code.co_filename != FILENAME:
+            return None
+        if event in ("line", "return", "exception"):
+            if len(steps) >= MAX_STEPS:
+                halted[0] = True
+                raise _StepLimit()
+            step = {"event": event, "line": frame.f_lineno, "stack": _stack(frame),
+                    "out": out.tell(), "watch": _watch(frame)}
+            if event == "return":
+                step["ret"] = _short(arg)
+            elif event == "exception":
+                step["exc"] = arg[0].__name__ + ": " + str(arg[1])
+            steps.append(step)
+        return tracer
+
+    bi = dict(builtins.__dict__)
+    bi["input"] = _input
+    g = {"__name__": "__main__", "__builtins__": bi}
+    random.seed(seed)
+    result = {"steps": steps, "error": None, "errorLine": None, "limit": False, "needInput": False}
+    old_out, old_err = sys.stdout, sys.stderr
+    sys.stdout = sys.stderr = out
+    try:
+        compiled = compile(code, FILENAME, "exec")
+        if trace:
+            sys.settrace(tracer)
+        try:
+            exec(compiled, g)
+        finally:
+            sys.settrace(None)
+    except _StepLimit:
+        result["limit"] = True
+    except _NeedInput:
+        result["needInput"] = True
+    except SystemExit:
+        pass
+    except SyntaxError as e:
+        result["error"] = f"{type(e).__name__}: {e.msg} (line {e.lineno})"
+        result["errorLine"] = e.lineno
+    except BaseException as e:
+        ln = None
+        for fr in traceback.extract_tb(e.__traceback__):
+            if fr.filename == FILENAME:
+                ln = fr.lineno
+        result["error"] = f"{type(e).__name__}: {e}" + (f"  (line {ln})" if ln else "")
+        result["errorLine"] = ln
+    finally:
+        sys.stdout, sys.stderr = old_out, old_err
+    result["output"] = out.getvalue()
+    return json.dumps(result)
+</script>
+
+<!-- Web Worker: hosts Pyodide so the page stays responsive and Stop can kill runaway loops -->
+<script type="text/js-worker" id="worker-src">
+importScripts("https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js");
+let py;
+self.onmessage = async (e) => {
+  const m = e.data;
+  if (m.type === "init") {
+    try {
+      py = await loadPyodide();
+      py.runPython(m.runner);
+      postMessage({ type: "ready", version: py.runPython("import sys; sys.version.split()[0]") });
+    } catch (err) { postMessage({ type: "fatal", message: String(err) }); }
+  } else if (m.type === "run") {
+    try {
+      try { await py.loadPackagesFromImports(m.code); } catch (_) {}
+      const run = py.globals.get("run");
+      const json = run(m.code, JSON.stringify(m.answers), JSON.stringify(m.watches), m.seed, m.trace);
+      run.destroy();
+      postMessage({ type: "result", id: m.id, result: JSON.parse(json) });
+    } catch (err) {
+      postMessage({ type: "result", id: m.id, result: { steps: [], output: "", error: "Internal error: " + err } });
+    }
+  }
+};
+</script>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/matchbrackets.min.js"></script>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+};
+
+const SAMPLE = `# Welcome to PyStudio!
+# 1. Click left of a line number to add a breakpoint (red dot).
+# 2. Press "Debug", then use the step buttons on the right.
+
+def factorial(n):
+    result = 1
+    for i in range(1, n + 1):
+        result = result * i
+    return result
+
+scores = [72, 88, 95, 60]
+total = 0
+for s in scores:
+    total += s
+average = total / len(scores)
+print("Average:", average)
+
+for n in range(1, 5):
+    print(n, "! =", factorial(n))
+
+name = input("What is your name? ")
+print("Hello,", name)
+`;
+
+// ---------- state ----------
+let files = store.get("pystudio.files", null);
+if (!files || typeof files !== "object" || !Object.keys(files).length) files = { "hello.py": { code: SAMPLE, bps: [14] } };
+let current = store.get("pystudio.current", null);
+if (!files[current]) current = Object.keys(files).sort()[0];
+let watches = store.get("pystudio.watches", []);
+
+let worker = null, pyReady = false, pending = null, runId = 0, busyTimer = null;
+let dbg = null, idx = 0, lineMarks = [], loading = false, lastAct = "into";
+
+// ---------- editor ----------
+const darkMQ = matchMedia("(prefers-color-scheme: dark)");
+const cmTheme = () => {
+  const t = document.documentElement.dataset.theme;
+  return (t ? t === "dark" : darkMQ.matches) ? "material-darker" : "default";
+};
+const cm = CodeMirror($("#editor"), {
+  mode: "python", theme: cmTheme(), lineNumbers: true, indentUnit: 4, tabSize: 4, matchBrackets: true,
+  gutters: ["bp-gutter", "CodeMirror-linenumbers"],
+  extraKeys: {
+    Tab: c => c.somethingSelected() ? c.indentSelection("add") : c.replaceSelection("    ", "end"),
+    "Shift-Tab": c => c.indentSelection("subtract"),
+  },
+});
+darkMQ.addEventListener?.("change", () => cm.setOption("theme", cmTheme()));
+
+function bpMarker() { const d = document.createElement("div"); d.className = "bp-dot"; return d; }
+cm.on("gutterClick", (c, line) => {
+  const info = c.lineInfo(line);
+  const has = info.gutterMarkers && info.gutterMarkers["bp-gutter"];
+  c.setGutterMarker(line, "bp-gutter", has ? null : bpMarker());
+  saveCurrent();
+});
+function getBps() {
+  const out = [];
+  cm.eachLine(h => { const i = cm.lineInfo(h); if (i.gutterMarkers && i.gutterMarkers["bp-gutter"]) out.push(i.line + 1); });
+  return out;
+}
+let saveT;
+cm.on("change", () => {
+  if (loading) return;
+  if (dbg) { endDebug(); banner("Code changed — debug session ended"); }
+  else if (waiting) { cancelWait(); $("#conin")?.remove(); $("#output .wait")?.remove(); }
+  clearMarks();
+  clearTimeout(saveT); saveT = setTimeout(saveCurrent, 400);
+});
+
+function saveCurrent() {
+  if (!files[current]) return;
+  files[current] = { code: cm.getValue(), bps: getBps() };
+  store.set("pystudio.files", files);
+  store.set("pystudio.current", current);
+}
+function loadFile(name) {
+  current = name;
+  loading = true;
+  cm.setValue(files[name].code);
+  cm.clearHistory();
+  for (const l of files[name].bps || []) if (l - 1 < cm.lineCount()) cm.setGutterMarker(l - 1, "bp-gutter", bpMarker());
+  loading = false;
+  $("#fname").textContent = name;
+  store.set("pystudio.current", name);
+  renderFiles();
+}
+
+// ---------- files ----------
+let renaming = false;
+function renderFiles() {
+  const ul = $("#filelist");
+  ul.innerHTML = Object.keys(files).sort().map(n =>
+    `<li class="${n === current ? "active" : ""}" data-name="${esc(n)}" title="Double-click to rename">${esc(n)}</li>`).join("");
+}
+$("#filelist").addEventListener("click", e => {
+  const li = e.target.closest("li"); if (!li || renaming) return;
+  const n = li.dataset.name; if (n === current) return;
+  saveCurrent(); endDebug(); clearMarks(); loadFile(n);
+});
+$("#filelist").addEventListener("dblclick", e => { if (e.target.closest("li")) startRename(); });
+function uniqueName(base) {
+  base = base.replace(/[\\/:*?"<>|]/g, "").trim() || "untitled.py";
+  if (!/\.py$/i.test(base)) base += ".py";
+  if (!files[base]) return base;
+  const stem = base.replace(/\.py$/i, "");
+  for (let i = 2; ; i++) if (!files[`${stem}${i}.py`]) return `${stem}${i}.py`;
+}
+$("#fNew").onclick = () => {
+  saveCurrent(); endDebug();
+  const n = uniqueName("untitled.py");
+  files[n] = { code: "", bps: [] };
+  loadFile(n); store.set("pystudio.files", files);
+  startRename();
+};
+function startRename() {
+  const li = $(`#filelist li.active`); if (!li) return;
+  renaming = true;
+  const inp = document.createElement("input");
+  inp.value = current; li.textContent = ""; li.appendChild(inp);
+  inp.focus(); inp.setSelectionRange(0, current.replace(/\.py$/i, "").length);
+  let done = false;
+  const finish = ok => {
+    if (done) return; done = true; renaming = false;
+    let v = inp.value.trim();
+    if (ok && v && v !== current) {
+      if (!/\.py$/i.test(v)) v += ".py";
+      v = v === current ? v : uniqueName(v);
+      saveCurrent();
+      files[v] = files[current]; delete files[current]; current = v;
+      store.set("pystudio.files", files);
+      $("#fname").textContent = v; store.set("pystudio.current", v);
+    }
+    renderFiles();
+  };
+  inp.onkeydown = e => { if (e.key === "Enter") finish(true); if (e.key === "Escape") finish(false); };
+  inp.onblur = () => finish(true);
+}
+$("#fRename").onclick = startRename;
+let delArmed = null;
+$("#fDelete").onclick = () => {
+  const b = $("#fDelete");
+  if (!delArmed) { b.textContent = `Really delete ${current}?`; delArmed = setTimeout(() => { delArmed = null; b.textContent = "Delete"; }, 3000); return; }
+  clearTimeout(delArmed); delArmed = null; b.textContent = "Delete";
+  endDebug(); delete files[current];
+  if (!Object.keys(files).length) files["untitled.py"] = { code: "", bps: [] };
+  store.set("pystudio.files", files);
+  loadFile(Object.keys(files).sort()[0]);
+};
+$("#fDownload").onclick = () => {
+  saveCurrent();
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([files[current].code], { type: "text/x-python" }));
+  a.download = current; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+};
+$("#fUpload").onclick = () => $("#upload").click();
+$("#upload").onchange = async e => {
+  saveCurrent(); let last;
+  for (const f of e.target.files) { last = uniqueName(f.name); files[last] = { code: await f.text(), bps: [] }; }
+  e.target.value = "";
+  if (last) { store.set("pystudio.files", files); endDebug(); loadFile(last); }
+};
+
+// ---------- worker ----------
+function setStatus(text, cls) { const s = $("#status"); s.textContent = text; s.className = cls; }
+function setBusy(busy) {
+  $("#btnRun").disabled = $("#btnDebug").disabled = busy || !pyReady;
+  $("#btnStop").disabled = !busy;
+}
+function startWorker() {
+  pyReady = false; setBusy(false); setStatus("Loading Python…", "busy");
+  const url = URL.createObjectURL(new Blob([$("#worker-src").textContent], { type: "text/javascript" }));
+  worker = new Worker(url);
+  worker.onmessage = e => {
+    const m = e.data;
+    if (m.type === "ready") { pyReady = true; setStatus(`Python ${m.version} ready`, "ok"); setBusy(false); }
+    else if (m.type === "fatal") setStatus("Python failed to load: " + m.message, "err");
+    else if (m.type === "result" && pending && pending.id === m.id) {
+      const p = pending; pending = null; clearTimeout(busyTimer);
+      setStatus("Ready", "ok"); setBusy(false); p.resolve(m.result);
+    }
+  };
+  worker.onerror = e => setStatus("Worker error: " + e.message, "err");
+  worker.postMessage({ type: "init", runner: $("#py-src").textContent });
+}
+function execute(trace, seed, answers) {
+  return new Promise(resolve => {
+    const id = ++runId;
+    pending = { id, resolve };
+    setBusy(true); setStatus(trace ? "Recording steps…" : "Running…", "busy");
+    busyTimer = setTimeout(() => setStatus("Still running — press Stop if it is stuck in a loop", "busy"), 2000);
+    worker.postMessage({ type: "run", id, code: cm.getValue(), answers, watches, seed, trace });
+  });
+}
+$("#btnStop").onclick = () => {
+  if (waiting) {
+    cancelWait(); endDebug();
+    $("#conin")?.remove(); $("#output .wait")?.remove();
+    $("#output").insertAdjacentHTML("beforeend", `<span class="note">\nProgram stopped.</span>`);
+    return;
+  }
+  if (!pending) return;
+  worker.terminate(); clearTimeout(busyTimer);
+  const p = pending; pending = null;
+  p.resolve(null);
+  showOutput("", null, "Program stopped. Restarting Python…");
+  startWorker();
+};
+
+// ---------- output ----------
+// Interactive input: when the program calls input(), a text box appears after the prompt.
+// onEnter(value) is called when the student presses Enter.
+let waiting = null;
+function showOutput(text, error, note, onEnter) {
+  waiting = onEnter || null;
+  let html = esc(text);
+  if (error) html += `<span class="err">${text && !text.endsWith("\n") ? "\n" : ""}${esc(error)}</span>`;
+  if (note) html += `<span class="note">${html ? "\n" : ""}${esc(note)}</span>`;
+  if (onEnter) html += `<input id="conin" autocomplete="off" spellcheck="false"><span class="wait">  ← type here and press Enter</span>`;
+  $("#output").innerHTML = html;
+  $("#output").scrollTop = 1e9;
+  $("#btnStop").disabled = !pending && !waiting;
+  if (onEnter) {
+    const inp = $("#conin");
+    inp.focus();
+    inp.onkeydown = e => {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      const cb = waiting; waiting = null;
+      if (cb) cb(inp.value);
+    };
+  }
+}
+function cancelWait() { waiting = null; runToken++; $("#btnStop").disabled = !pending; }
+let runToken = 0;
+$("#btnClear").onclick = () => showOutput("");
+function clearMarks() { for (const [h, c] of lineMarks) cm.removeLineClass(h, "background", c); lineMarks = []; }
+function markLine(line, cls) {
+  if (!line || line > cm.lineCount()) return;
+  lineMarks.push([cm.addLineClass(line - 1, "background", cls), cls]);
+  cm.scrollIntoView({ line: line - 1, ch: 0 }, 80);
+}
+let bannerT;
+function banner(t) { const b = $("#banner"); b.textContent = t; b.style.display = "block"; clearTimeout(bannerT); bannerT = setTimeout(() => b.style.display = "none", 2500); }
+
+// ---------- run / debug ----------
+const newSeed = () => Math.floor(Math.random() * 2 ** 31);
+$("#btnRun").onclick = async () => {
+  endDebug(); clearMarks(); saveCurrent(); cancelWait();
+  const token = runToken, seed = newSeed(), answers = [];
+  for (;;) {
+    const r = await execute(false, seed, answers);
+    if (!r || token !== runToken) return;
+    if (r.needInput) {
+      const v = await new Promise(res => showOutput(r.output, null, null, res));
+      if (token !== runToken) return;
+      answers.push(v);
+      continue;
+    }
+    showOutput(r.output, r.error);
+    if (r.errorLine) markLine(r.errorLine, "cm-exc");
+    return;
+  }
+};
+$("#btnDebug").onclick = () => startDebug(null);
+
+async function startDebug(keepIdx, answers = []) {
+  saveCurrent(); clearMarks(); cancelWait();
+  const token = runToken;
+  const seed = keepIdx != null && dbg ? dbg.seed : newSeed();
+  const r = await execute(true, seed, answers);
+  if (!r || token !== runToken) return;
+  if (!r.steps.length) { endDebug(); showOutput(r.output, r.error); if (r.errorLine) markLine(r.errorLine, "cm-exc"); return; }
+  dbg = { ...r, seed, answers, watchCount: watches.length };
+  $("#idle").classList.add("hidden"); $("#dbgpanel").classList.remove("hidden"); $("#varsec").classList.remove("hidden");
+  const tl = $("#timeline"); tl.max = r.steps.length - 1;
+  if (keepIdx != null) idx = Math.min(keepIdx, r.steps.length - 1);
+  else {
+    idx = 0;
+    const bps = new Set(getBps());
+    if (bps.size && !(r.steps[0].event === "line" && bps.has(r.steps[0].line))) idx = findNext(0, s => s.event === "line" && bps.has(s.line)) ?? r.steps.length - 1;
+  }
+  render();
+}
+function endDebug() {
+  if (waiting) cancelWait();
+  if (!dbg) return;
+  dbg = null; clearMarks();
+  $("#idle").classList.remove("hidden"); $("#dbgpanel").classList.add("hidden"); $("#varsec").classList.add("hidden");
+  renderWatches();
+}
+function findNext(from, pred) { for (let j = from + 1; j < dbg.steps.length; j++) if (pred(dbg.steps[j])) return j; return null; }
+function findPrev(from, pred) { for (let j = from - 1; j >= 0; j--) if (pred(dbg.steps[j])) return j; return null; }
+
+function act(a) {
+  if (!dbg) return;
+  const last = dbg.steps.length - 1, d = dbg.steps[idx].stack.length;
+  const bps = new Set(getBps()), isBp = s => s.event === "line" && bps.has(s.line);
+  if (["into", "over", "out", "cont", "end"].includes(a)) lastAct = a;
+  switch (a) {
+    case "start": idx = 0; break;
+    case "end": idx = last; break;
+    case "back": idx = Math.max(0, idx - 1); break;
+    case "into": idx = Math.min(last, idx + 1); break;
+    case "over": idx = findNext(idx, s => s.stack.length <= d) ?? last; break;
+    case "out": idx = findNext(idx, s => s.stack.length < d) ?? last; break;
+    case "cont": idx = findNext(idx, isBp) ?? last; break;
+    case "rcont": idx = findPrev(idx, isBp) ?? 0; break;
+    case "stop": endDebug(); return;
+  }
+  render();
+}
+$("#dbgbar").addEventListener("click", e => { const b = e.target.closest("button"); if (b) act(b.dataset.act); });
+$("#timeline").addEventListener("input", e => { idx = +e.target.value; render(); });
+
+function render() {
+  const steps = dbg.steps, s = steps[idx], last = steps.length - 1, top = s.stack[s.stack.length - 1];
+  clearMarks();
+  markLine(s.line, s.event === "exception" ? "cm-exc" : s.event === "return" ? "cm-ret" : "cm-cur");
+  $("#timeline").value = idx;
+
+  let info;
+  if (s.event === "line") info = `About to run <b>line ${s.line}</b> in <code>${esc(top.func)}</code>`;
+  else if (s.event === "return") info = top.func === "(global)" ? "<b>Program finished</b>" : `<code>${esc(top.func)}</code> returns <code>${esc(s.ret)}</code>`;
+  else info = `<b style="color:var(--danger)">Exception</b> on line ${s.line}: ${esc(s.exc)}`;
+  $("#stepinfo").innerHTML = `<span style="color:var(--muted)">Step ${idx + 1}/${steps.length} · </span>${info}`;
+
+  const prevMap = new Map();
+  if (idx > 0) steps[idx - 1].stack.forEach((f, i) => f.vars.forEach(([n, , v]) => prevMap.set(`${i}|${f.func}|${n}`, v)));
+  $("#vars").innerHTML = s.stack.map((f, i) => ({ f, i })).reverse().map(({ f, i }) => {
+    const rows = f.vars.map(([n, t, v]) => {
+      const k = `${i}|${f.func}|${n}`, chg = idx > 0 && prevMap.get(k) !== v && (prevMap.has(k) || steps[idx - 1].stack[i]?.func === f.func);
+      return `<tr class="${chg ? "chg" : ""}"><td class="n">${esc(n)}</td><td class="t">${esc(t)}</td><td class="v">${esc(v)}</td></tr>`;
+    }).join("");
+    return `<div class="frame ${i === s.stack.length - 1 ? "top" : ""}"><h3>${esc(f.func)}<span>line ${f.line}</span></h3>${rows ? `<table>${rows}</table>` : `<div class="empty">no variables yet</div>`}</div>`;
+  }).join("");
+
+  renderWatches();
+  if (idx === last && dbg.needInput) {
+    // Paused on an input() call: ask for the answer, re-record with it, then carry on stepping.
+    $("#stepinfo").innerHTML += `<br><b style="color:var(--accent)">Waiting for input</b> — type your answer in the Output panel and press Enter`;
+    showOutput(dbg.output, null, null, async v => {
+      const again = lastAct;
+      await startDebug(idx, [...dbg.answers, v]);
+      if (dbg) act(again);
+    });
+    return;
+  }
+  let note = null;
+  if (idx === last && dbg.limit) note = `Stopped recording after ${steps.length} steps (is there an infinite loop?)`;
+  showOutput(dbg.output.slice(0, s.out), idx === last ? dbg.error : null, note);
+}
+
+// ---------- watches ----------
+function renderWatches() {
+  const s = dbg && dbg.watchCount === watches.length ? dbg.steps[idx] : null;
+  $("#watches").innerHTML = watches.length
+    ? watches.map((w, i) => `<tr><td class="n">${esc(w)}</td><td class="v">${s ? esc(s.watch[i]) : "<span style='color:var(--muted)'>—</span>"}</td><td class="x" data-i="${i}" title="Remove">✕</td></tr>`).join("")
+    : `<tr><td class="empty" style="border:0">Add an expression to watch it change as you step.</td></tr>`;
+}
+$("#watchform").onsubmit = e => {
+  e.preventDefault();
+  const v = $("#watchin").value.trim(); if (!v) return;
+  watches.push(v); $("#watchin").value = ""; store.set("pystudio.watches", watches);
+  if (dbg) startDebug(idx); else renderWatches();
+};
+$("#watches").addEventListener("click", e => {
+  const x = e.target.closest(".x"); if (!x) return;
+  watches.splice(+x.dataset.i, 1); store.set("pystudio.watches", watches);
+  if (dbg) startDebug(idx); else renderWatches();
+});
+
+// ---------- keyboard ----------
+document.addEventListener("keydown", e => {
+  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); if (!$("#btnRun").disabled) $("#btnRun").click(); }
+  else if (e.key === "s" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); saveCurrent(); banner("Saved"); }
+  else if (e.key === "F5") { e.preventDefault(); dbg ? act("cont") : (!$("#btnDebug").disabled && startDebug(null)); }
+  else if (e.key === "F10") { e.preventDefault(); act("over"); }
+  else if (e.key === "F11") { e.preventDefault(); act(e.shiftKey ? "out" : "into"); }
+  else if (e.key === "F9") { e.preventDefault(); act("back"); }
+});
+window.addEventListener("beforeunload", saveCurrent);
+
+loadFile(current);
+renderWatches();
+startWorker();
+</script>
+</body>
+</html>
