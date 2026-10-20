@@ -38,7 +38,18 @@ button.danger{color:var(--danger)}
 input,textarea{font:inherit;color:var(--text);background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:5px 8px}
 header{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--panel);border-bottom:1px solid var(--border);flex-wrap:wrap}
 header h1{font-size:16px;margin:0 12px 0 0;font-weight:650}
-#fname{font-family:var(--mono);color:var(--muted);margin-right:auto}
+#fname{font-family:var(--mono);color:var(--muted)}
+#savestate{font-size:12px;color:var(--muted);margin-right:auto}
+#savestate.ok{color:var(--ok)} #savestate.warn{color:#d97706}
+#acct{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);padding-right:6px;margin-right:4px;border-right:1px solid var(--border)}
+#acct button{font-size:12px;padding:3px 8px}
+#login{position:fixed;inset:0;z-index:50;background:rgba(10,14,22,.55);display:flex;align-items:center;justify-content:center;padding:16px}
+#login .card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:28px;max-width:400px;width:100%;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,.25)}
+#login h2{margin:0 0 8px;font-size:22px}
+#login p{color:var(--muted);margin:0 0 18px}
+#login button{display:block;width:100%;margin:0 0 10px;padding:9px}
+#login .small{font-size:12px;margin:4px 0 0}
+#loginMsg{min-height:18px;color:var(--text)!important;font-size:13px}
 #status{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px}
 #status::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--muted)}
 #status.ok::before{background:var(--ok)} #status.busy::before{background:#f59e0b} #status.err::before{background:var(--danger)}
@@ -106,6 +117,8 @@ tr.chg td{background:var(--changed)}
 <header>
   <h1>🐍 PyStudio</h1>
   <span id="fname"></span>
+  <span id="savestate"></span>
+  <span id="acct" class="hidden"><span id="who"></span><button id="btnSignIn">Sign in</button><button id="btnSignOut" class="hidden">Sign out</button></span>
   <button id="btnRun" class="primary" title="Run (Ctrl+Enter)" disabled>▶ Run</button>
   <button id="btnDebug" title="Debug (F5)" disabled>🐞 Debug</button>
   <button id="btnStop" class="danger" title="Stop the program" disabled>■ Stop</button>
@@ -171,6 +184,17 @@ tr.chg td{background:var(--changed)}
     </div>
   </aside>
 </main>
+
+<div id="login" class="hidden">
+  <div class="card">
+    <h2>🐍 PyStudio</h2>
+    <p>Sign in with your school Google account to save your files online and open them on any computer.</p>
+    <p id="loginMsg"></p>
+    <button id="btnGoogle" class="primary">Sign in with Google</button>
+    <button id="btnGuest">Use without signing in</button>
+    <p class="small">Without signing in, files are saved only in this browser on this computer.</p>
+  </div>
+</div>
 
 <!-- Python side: runs student code and records every step with sys.settrace -->
 <script type="text/python" id="py-src">
@@ -319,6 +343,7 @@ self.onmessage = async (e) => {
 };
 </script>
 
+<script src="firebase-config.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/matchbrackets.min.js"></script>
@@ -355,10 +380,7 @@ print("Hello,", name)
 `;
 
 // ---------- state ----------
-let files = store.get("pystudio.files", null);
-if (!files || typeof files !== "object" || !Object.keys(files).length) files = { "hello.py": { code: SAMPLE, bps: [14] } };
-let current = store.get("pystudio.current", null);
-if (!files[current]) current = Object.keys(files).sort()[0];
+let files = null, current = null;   // filled by useLocal() / useCloud()
 let watches = store.get("pystudio.watches", []);
 
 let worker = null, pyReady = false, pending = null, runId = 0, busyTimer = null;
@@ -402,10 +424,10 @@ cm.on("change", () => {
 });
 
 function saveCurrent() {
-  if (!files[current]) return;
-  files[current] = { code: cm.getValue(), bps: getBps() };
-  store.set("pystudio.files", files);
-  store.set("pystudio.current", current);
+  if (!files || !files[current]) return;
+  files[current] = { ...files[current], code: cm.getValue(), bps: getBps() };
+  persist();
+  store.set(curKey(), current);
 }
 function loadFile(name) {
   current = name;
@@ -415,7 +437,7 @@ function loadFile(name) {
   for (const l of files[name].bps || []) if (l - 1 < cm.lineCount()) cm.setGutterMarker(l - 1, "bp-gutter", bpMarker());
   loading = false;
   $("#fname").textContent = name;
-  store.set("pystudio.current", name);
+  store.set(curKey(), name);
   renderFiles();
 }
 
@@ -443,7 +465,7 @@ $("#fNew").onclick = () => {
   saveCurrent(); endDebug();
   const n = uniqueName("untitled.py");
   files[n] = { code: "", bps: [] };
-  loadFile(n); store.set("pystudio.files", files);
+  loadFile(n); persist();
   startRename();
 };
 function startRename() {
@@ -461,8 +483,8 @@ function startRename() {
       v = v === current ? v : uniqueName(v);
       saveCurrent();
       files[v] = files[current]; delete files[current]; current = v;
-      store.set("pystudio.files", files);
-      $("#fname").textContent = v; store.set("pystudio.current", v);
+      persist();
+      $("#fname").textContent = v; store.set(curKey(), v);
     }
     renderFiles();
   };
@@ -477,7 +499,7 @@ $("#fDelete").onclick = () => {
   clearTimeout(delArmed); delArmed = null; b.textContent = "Delete";
   endDebug(); delete files[current];
   if (!Object.keys(files).length) files["untitled.py"] = { code: "", bps: [] };
-  store.set("pystudio.files", files);
+  persist();
   loadFile(Object.keys(files).sort()[0]);
 };
 $("#fDownload").onclick = () => {
@@ -491,7 +513,7 @@ $("#upload").onchange = async e => {
   saveCurrent(); let last;
   for (const f of e.target.files) { last = uniqueName(f.name); files[last] = { code: await f.text(), bps: [] }; }
   e.target.value = "";
-  if (last) { store.set("pystudio.files", files); endDebug(); loadFile(last); }
+  if (last) { persist(); endDebug(); loadFile(last); }
 };
 
 // ---------- worker ----------
@@ -706,17 +728,186 @@ $("#watches").addEventListener("click", e => {
 // ---------- keyboard ----------
 document.addEventListener("keydown", e => {
   if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); if (!$("#btnRun").disabled) $("#btnRun").click(); }
-  else if (e.key === "s" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); saveCurrent(); banner("Saved"); }
+  else if (e.key === "s" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); saveCurrent(); if (mode === "cloud") flush(); else banner("Saved"); }
   else if (e.key === "F5") { e.preventDefault(); dbg ? act("cont") : (!$("#btnDebug").disabled && startDebug(null)); }
   else if (e.key === "F10") { e.preventDefault(); act("over"); }
   else if (e.key === "F11") { e.preventDefault(); act(e.shiftKey ? "out" : "into"); }
   else if (e.key === "F9") { e.preventDefault(); act("back"); }
 });
-window.addEventListener("beforeunload", saveCurrent);
+window.addEventListener("beforeunload", e => {
+  saveCurrent();
+  if (mode === "cloud") { flush(); if (inflight) { e.preventDefault(); e.returnValue = ""; } }
+});
 
-loadFile(current);
+// ---------- storage: this browser (guest) or the student's online account (Firebase) ----------
+const CFG = window.PYSTUDIO_CONFIG || {};
+let mode = "local", user = null, db = null, synced = new Map(), flushT = null, inflight = 0;
+const curKey = () => user ? "pystudio.current." + user.uid : "pystudio.current";
+const sampleFiles = () => ({ "hello.py": { code: SAMPLE, bps: [14] } });
+
+function localFiles() {
+  const f = store.get("pystudio.files", null);
+  return f && typeof f === "object" && Object.keys(f).length ? f : sampleFiles();
+}
+function persist() {
+  if (!files) return;
+  if (mode === "local") { store.set("pystudio.files", files); return; }
+  setSaveState("saving");
+  clearTimeout(flushT); flushT = setTimeout(flush, 800);
+}
+// Writes only the files that changed since the last successful save, plus any deletions.
+async function flush() {
+  clearTimeout(flushT); flushT = null;
+  if (mode !== "cloud" || !user || !files) return;
+  const col = db.collection("users").doc(user.uid).collection("files");
+  const batch = db.batch(), seen = new Set(), changes = [];
+  for (const [name, f] of Object.entries(files)) {
+    if (!f.id) f.id = col.doc().id;
+    seen.add(f.id);
+    const sig = JSON.stringify([name, f.code, f.bps || []]);
+    if (synced.get(f.id) !== sig) {
+      batch.set(col.doc(f.id), { name, code: f.code, bps: f.bps || [], updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+      changes.push([f.id, sig]);
+    }
+  }
+  for (const id of synced.keys()) if (!seen.has(id)) { batch.delete(col.doc(id)); changes.push([id, null]); }
+  if (!changes.length) { if (!inflight) setSaveState("saved"); return; }
+  for (const [id, sig] of changes) sig == null ? synced.delete(id) : synced.set(id, sig);
+  const uid = user.uid;
+  inflight++;
+  try {
+    await batch.commit();
+    inflight--;
+    if (user && user.uid === uid && !inflight && !flushT) setSaveState("saved");
+  } catch (err) {
+    inflight--;
+    console.error("Save failed", err);
+    for (const [id] of changes) synced.set(id, "retry");   // forces a rewrite / re-delete next time
+    if (user && user.uid === uid) { setSaveState("error"); clearTimeout(flushT); flushT = setTimeout(flush, 5000); }
+  }
+}
+function setSaveState(s) {
+  const el = $("#savestate");
+  const offline = !navigator.onLine;
+  const t = {
+    local: ["💾 Saved on this computer", ""],
+    saving: [offline ? "⚠ Offline — will save when reconnected" : "Saving…", offline ? "warn" : "busy"],
+    saved: ["☁ Saved", "ok"],
+    error: ["⚠ Not saved — retrying…", "warn"],
+  }[s];
+  el.textContent = t[0]; el.className = t[1];
+}
+addEventListener("online", () => { if (mode === "cloud") flush(); });
+addEventListener("offline", () => { if (mode === "cloud" && (inflight || flushT)) setSaveState("saving"); });
+
+function switchFiles(newMode, u, f) {
+  endDebug(); clearMarks(); showOutput("");
+  mode = newMode; user = u; files = f;
+  current = store.get(curKey(), null);
+  if (!files[current]) current = Object.keys(files).sort()[0];
+  loadFile(current);
+  renderAcct();
+  setSaveState(mode === "local" ? "local" : "saved");
+}
+function useLocal() { synced = new Map(); switchFiles("local", null, localFiles()); }
+
+async function useCloud(u) {
+  showLogin("Loading your files…", true);
+  const col = db.collection("users").doc(u.uid).collection("files");
+  let snap;
+  try { snap = await col.get(); }
+  catch (e) { await firebase.auth().signOut(); showLogin("Could not load your files: " + e.message); return; }
+  const f = {}, s = new Map();
+  snap.forEach(d => {
+    const x = d.data();
+    let n = x.name || "untitled.py";
+    for (let i = 2; f[n]; i++) n = (x.name || "untitled.py").replace(/\.py$/i, "") + i + ".py";
+    f[n] = { code: x.code || "", bps: x.bps || [], id: d.id };
+    s.set(d.id, JSON.stringify([x.name, x.code || "", x.bps || []]));
+  });
+  const first = !snap.size;
+  db.collection("users").doc(u.uid).set({
+    email: u.email, name: u.displayName || "", lastSeen: firebase.firestore.FieldValue.serverTimestamp(),
+  }, { merge: true }).catch(() => {});
+  synced = s;
+  switchFiles("cloud", u, first ? sampleFiles() : f);
+  hideLogin();
+  if (first) persist();
+}
+
+function allowedEmail(email) {
+  const doms = (CFG.allowedDomains || []).map(d => d.toLowerCase());
+  email = (email || "").toLowerCase();
+  return !doms.length || doms.some(d => email.endsWith("@" + d) || email.endsWith("." + d));
+}
+function showLogin(msg, busy) {
+  $("#login").classList.remove("hidden");
+  $("#loginMsg").textContent = msg || "";
+  $("#btnGoogle").disabled = $("#btnGuest").disabled = !!busy;
+}
+function hideLogin() { $("#login").classList.add("hidden"); }
+function renderAcct() {
+  $("#acct").classList.toggle("hidden", !CFG.firebase);
+  $("#who").textContent = user ? user.email : "Not signed in";
+  $("#btnSignIn").classList.toggle("hidden", !!user);
+  $("#btnSignOut").classList.toggle("hidden", !user);
+}
+function loadScript(src) {
+  return new Promise((res, rej) => {
+    const s = document.createElement("script");
+    s.src = src; s.onload = res; s.onerror = () => rej(new Error("Could not load " + src));
+    document.head.appendChild(s);
+  });
+}
+
+async function initAccounts() {
+  if (!CFG.firebase) { useLocal(); return; }
+  showLogin("Checking sign-in…", true);
+  try {
+    const base = "https://www.gstatic.com/firebasejs/10.14.1/";
+    await loadScript(base + "firebase-app-compat.js");
+    await Promise.all([loadScript(base + "firebase-auth-compat.js"), loadScript(base + "firebase-firestore-compat.js")]);
+    firebase.initializeApp(CFG.firebase);
+    db = firebase.firestore();
+  } catch (e) {
+    hideLogin(); useLocal();
+    banner("Online saving is unavailable — files are saved on this computer");
+    return;
+  }
+  firebase.auth().onAuthStateChanged(async u => {
+    if (u && !allowedEmail(u.email)) {
+      await firebase.auth().signOut();
+      showLogin(`Please use your school account (${CFG.allowedDomains.join(" or ")}).`);
+      return;
+    }
+    if (u) { await useCloud(u); return; }
+    // Signed out: hide the previous student's files straight away.
+    if (mode === "cloud" || !files) { synced = new Map(); useLocal(); }
+    showLogin();
+  });
+}
+
+$("#btnGoogle").onclick = async () => {
+  saveCurrent();
+  const p = new firebase.auth.GoogleAuthProvider();
+  p.setCustomParameters({ prompt: "select_account" });
+  try { await firebase.auth().signInWithPopup(p); }
+  catch (e) {
+    if (e.code === "auth/popup-blocked") return firebase.auth().signInWithRedirect(p);
+    if (e.code !== "auth/popup-closed-by-user" && e.code !== "auth/cancelled-popup-request") showLogin("Sign-in failed: " + e.message);
+  }
+};
+$("#btnGuest").onclick = () => { hideLogin(); if (mode !== "local") useLocal(); };
+$("#btnSignIn").onclick = () => { saveCurrent(); showLogin(); };
+$("#btnSignOut").onclick = async () => {
+  saveCurrent();
+  await Promise.race([flush(), new Promise(r => setTimeout(r, 4000))]);
+  await firebase.auth().signOut();
+};
+
 renderWatches();
 startWorker();
+initAccounts();
 </script>
 </body>
 </html>

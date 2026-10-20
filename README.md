@@ -9,10 +9,11 @@ A browser-based Python editor for students, with a visual debugger.
 - Breakpoints, step over / into / out, continue, and **step backwards** through a recorded run
 - Variables & call-stack panel that highlights changed values, plus watch expressions
 - Interactive `input()` in the output console
-- Multiple files, saved automatically in the browser; upload / download `.py` files
+- Multiple files, saved automatically; upload / download `.py` files
+- Optional sign-in with a school Google account so files are saved online and follow the student to any computer (Firebase — see [SETUP.md](SETUP.md))
 
 ## Notes
-- Files are stored in the student's browser (localStorage) on that device. Use **Download** to keep a copy.
+- Until Firebase is configured, or when a student chooses "Use without signing in", files are stored only in that browser. Use **Download** to keep a copy.
 - Debug recording stops after 5,000 steps to catch infinite loops.
 
 ## Run locally
