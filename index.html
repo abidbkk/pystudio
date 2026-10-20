@@ -714,28 +714,7 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
 };
 
-const SAMPLE = `# Welcome to PyStudio!
-# 1. Click left of a line number to add a breakpoint (red dot).
-# 2. Press "Debug", then use the step buttons on the right.
-
-def factorial(n):
-    result = 1
-    for i in range(1, n + 1):
-        result = result * i
-    return result
-
-scores = [72, 88, 95, 60]
-total = 0
-for s in scores:
-    total += s
-average = total / len(scores)
-print("Average:", average)
-
-for n in range(1, 5):
-    print(n, "! =", factorial(n))
-
-name = input("What is your name? ")
-print("Hello,", name)
+const SAMPLE = `# Start typing your code here
 `;
 
 // ---------- state ----------
@@ -1324,7 +1303,7 @@ const bridge = (() => {
 let mode = "local", me = null, view = null, synced = new Map(), flushT = null, inflight = false, again = false;
 let tmpN = 0, pollT = null, ctxN = 0, classes = [];
 const curKey = () => view ? "pystudio.current." + view.target : "pystudio.current";
-const sampleFiles = () => ({ "hello.py": { code: SAMPLE, bps: [14] } });
+const sampleFiles = () => ({ "hello.py": { code: SAMPLE, bps: [] } });
 const sigOf = (name, f) => JSON.stringify([name, f.code, f.bps || []]);
 const firstName = n => String(n || "").split(/[\s@]/)[0];
 const sleep = ms => new Promise(r => setTimeout(r, ms));
