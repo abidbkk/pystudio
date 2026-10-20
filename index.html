@@ -748,7 +748,7 @@ import json
 import keyword as _kw
 import tokenize
 
-KEYWORDS = {"DECLARE", "CONSTANT", "INPUT", "OUTPUT", "IF", "THEN", "ELSE", "ENDIF", "CASE", "OF", "OTHERWISE",
+KEYWORDS = {"DECLARE", "CONSTANT", "INPUT", "OUTPUT", "IF", "THEN", "ELSE", "ELSEIF", "ENDIF", "CASE", "OF", "OTHERWISE",
             "ENDCASE", "FOR", "TO", "STEP", "NEXT", "REPEAT", "UNTIL", "WHILE", "DO", "ENDWHILE", "PROCEDURE",
             "ENDPROCEDURE", "FUNCTION", "ENDFUNCTION", "RETURNS", "RETURN", "CALL", "ARRAY", "INTEGER", "REAL",
             "CHAR", "STRING", "BOOLEAN", "TRUE", "FALSE", "AND", "OR", "NOT", "MOD", "DIV", "LENGTH", "LCASE",
@@ -939,6 +939,9 @@ class Translator:
         elif isinstance(node, (ast.While, ast.If)):
             self.scan_block(node.body, sc)
             self.scan_block(node.orelse, sc)
+        elif isinstance(node, ast.Match):
+            for c in node.cases:
+                self.scan_block(c.body, sc)
         elif isinstance(node, ast.With):
             for item in node.items:
                 if isinstance(item.optional_vars, ast.Name):
@@ -1367,6 +1370,9 @@ class Translator:
         if isinstance(n, ast.For):
             self.for_stmt(n, I, sc, tr)
             return
+        if isinstance(n, ast.Match):
+            self.match_stmt(n, I, sc, tr)
+            return
         if isinstance(n, ast.While):
             self.while_stmt(n, I, sc, tr)
             return
@@ -1498,52 +1504,48 @@ class Translator:
                 return
         raise Unsupported("call")
 
-    def if_stmt(self, n, I, sc, tr, chained=False):
-        case = self.case_chain(n)
-        if case:
-            var, branches, other = case
-            self.emit(I, f"CASE OF {self.expr(var, sc)}{tr}", n.lineno)
-            for val, body in branches:
-                self.emit(I + "  ", f"{self.expr(val, sc)} : {self.inline(body[0], sc)}", body[0].lineno)
-            if other:
-                self.emit(I + "  ", f"OTHERWISE {self.inline(other[0], sc)}", other[0].lineno)
-            self.emit(I, "ENDCASE", n.lineno)
-            return
+    def is_elif(self, node):
+        """ast stores elif as else: [if ...]; tell them apart from the source line."""
+        return self.src.splitlines()[node.lineno - 1].lstrip().startswith("elif")
+
+    def if_stmt(self, n, I, sc, tr):
         self.emit(I, f"IF {self.sx(n.test, sc)}{tr}", n.lineno)
         self.emit(I + "  ", "THEN", n.lineno)
         self.block(n.body, I + "    ", sc)
-        if n.orelse:
-            self.emit(I + "  ", "ELSE", n.orelse[0].lineno)
-            if len(n.orelse) == 1 and isinstance(n.orelse[0], ast.If):
-                self.flush_comments(n.orelse[0].lineno, I + "    ")
-                self.if_stmt(n.orelse[0], I + "    ", sc, self.trailing(n.orelse[0].lineno))
-            else:
-                self.block(n.orelse, I + "    ", sc)
+        node = n
+        while len(node.orelse) == 1 and isinstance(node.orelse[0], ast.If) and self.is_elif(node.orelse[0]):
+            e = node.orelse[0]
+            self.flush_comments(e.lineno, I + "  ")
+            self.ctx = (I + "  ", e.lineno)
+            self.emit(I + "  ", f"ELSEIF {self.sx(e.test, sc)}{self.trailing(e.lineno)}", e.lineno)
+            self.block(e.body, I + "    ", sc)
+            node = e
+        if node.orelse:
+            self.emit(I + "  ", "ELSE", node.orelse[0].lineno)
+            self.block(node.orelse, I + "    ", sc)
         self.emit(I, "ENDIF", n.lineno)
 
-    def case_chain(self, n):
-        """if x == 1: ... elif x == 2: ... (3+ single-statement branches on one variable) -> CASE"""
-        branches, node, var = [], n, None
-        while True:
-            t = node.test
-            if not (isinstance(t, ast.Compare) and len(t.ops) == 1 and isinstance(t.ops[0], ast.Eq)
-                    and isinstance(t.left, ast.Name) and isinstance(t.comparators[0], ast.Constant)):
-                return None
-            if var is None:
-                var = t.left
-            elif t.left.id != var.id:
-                return None
-            if len(node.body) != 1 or not self.simple(node.body[0]):
-                return None
-            branches.append((t.comparators[0], node.body))
-            if len(node.orelse) == 1 and isinstance(node.orelse[0], ast.If):
-                node = node.orelse[0]
-                continue
-            other = node.orelse or None
-            if other and (len(other) != 1 or not self.simple(other[0])):
-                return None
-            break
-        return (var, branches, other) if len(branches) >= 3 else None
+    def match_stmt(self, n, I, sc, tr):
+        """match / case -> CASE OF ... OTHERWISE ... ENDCASE"""
+        self.emit(I, f"CASE OF {self.sx(n.subject, sc)}{tr}", n.lineno)
+        for c in n.cases:
+            p = c.pattern
+            if c.guard is not None:
+                raise Unsupported("case with if")
+            if isinstance(p, ast.MatchAs) and p.pattern is None and p.name is None:
+                label = "OTHERWISE"
+            elif isinstance(p, ast.MatchValue):
+                label = self.sx(p.value, sc) + " :"
+            elif isinstance(p, ast.MatchOr) and all(isinstance(x, ast.MatchValue) for x in p.patterns):
+                label = ", ".join(self.sx(x.value, sc) for x in p.patterns) + " :"
+            else:
+                raise Unsupported("case pattern")
+            if len(c.body) == 1 and self.simple(c.body[0]):
+                self.emit(I + "  ", f"{label} {self.inline(c.body[0], sc)}", c.body[0].lineno)
+            else:
+                self.emit(I + "  ", label, p.lineno if hasattr(p, "lineno") else n.lineno)
+                self.block(c.body, I + "      ", sc)
+        self.emit(I, "ENDCASE", n.lineno)
 
     def simple(self, s):
         if isinstance(s, ast.Assign) and len(s.targets) == 1 and isinstance(s.targets[0], (ast.Name, ast.Subscript)) and not self.is_input(s.value)[0]:
@@ -2426,7 +2428,7 @@ const drawing = (() => {
 
 // ---------- pseudocode panel (Cambridge IGCSE 0984 style, view only) ----------
 const pseudo = (() => {
-  const KW = new Set(["DECLARE", "CONSTANT", "INPUT", "OUTPUT", "IF", "THEN", "ELSE", "ENDIF", "CASE", "OF", "OTHERWISE", "ENDCASE",
+  const KW = new Set(["DECLARE", "CONSTANT", "INPUT", "OUTPUT", "IF", "THEN", "ELSE", "ELSEIF", "ENDIF", "CASE", "OF", "OTHERWISE", "ENDCASE",
     "FOR", "TO", "STEP", "NEXT", "REPEAT", "UNTIL", "WHILE", "DO", "ENDWHILE", "PROCEDURE", "ENDPROCEDURE", "FUNCTION",
     "ENDFUNCTION", "RETURNS", "RETURN", "CALL", "ARRAY", "INTEGER", "REAL", "CHAR", "STRING", "BOOLEAN", "TRUE", "FALSE",
     "AND", "OR", "NOT", "MOD", "DIV", "LENGTH", "LCASE", "UCASE", "SUBSTRING", "ROUND", "RANDOM", "OPENFILE", "READFILE",
