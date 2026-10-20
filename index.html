@@ -45,8 +45,8 @@ header h1{font-size:16px;margin:0 12px 0 0;font-weight:650}
 #status{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px}
 #status::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--muted)}
 #status.ok::before{background:var(--ok)} #status.busy::before{background:#f59e0b} #status.err::before{background:var(--danger)}
-main{flex:1;min-height:0;display:grid;grid-template-columns:190px minmax(0,1fr);grid-template-rows:minmax(0,1fr) 210px;grid-template-areas:"files editor" "files io"}
-main.debugging{grid-template-columns:190px minmax(0,1fr) 360px;grid-template-areas:"files editor debug" "files io debug"}
+main{flex:1;min-height:0;display:grid;grid-template-columns:240px minmax(0,1fr);grid-template-rows:minmax(0,1fr) 210px;grid-template-areas:"files editor" "files io"}
+main.debugging{grid-template-columns:240px minmax(0,1fr) 360px;grid-template-areas:"files editor debug" "files io debug"}
 aside#files{grid-area:files;background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column;min-height:0}
 .ptitle{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);padding:10px 12px 6px;font-weight:600;display:flex;align-items:center;justify-content:space-between}
 #filelist{list-style:none;margin:0;padding:0 6px;overflow:auto;flex:1}
