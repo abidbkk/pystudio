@@ -47,6 +47,81 @@ function setup() {
   Logger.log('Student files folder: ' + root.getUrl());
 }
 
+/**
+ * Fills the Students and Teachers tabs from your active Google Classroom classes.
+ * Needs the "Google Classroom API" service (Services + in the left panel). Safe to run again:
+ * - rows for classes that come from Classroom are replaced with the current Classroom roster;
+ * - rows you typed for other classes are kept;
+ * - "Last active" is kept for students already on the list;
+ * - co-teachers are added to the Teachers tab (nobody is removed).
+ */
+function importFromClassroom() {
+  if (typeof Classroom === 'undefined') {
+    throw new Error('Add the Google Classroom API first: click + next to "Services" in the left panel, choose "Google Classroom API", then Add.');
+  }
+  const ss = SpreadsheetApp.openById(PROPS.getProperty('SHEET'));
+  const owner = Session.getEffectiveUser().getEmail().toLowerCase();
+  const courses = pageAll_(t => Classroom.Courses.list({ teacherId: 'me', courseStates: ['ACTIVE'], pageToken: t }), 'courses');
+  if (!courses.length) { Logger.log('No active Google Classroom classes found where you are a teacher.'); return; }
+
+  // Course names become class names; add the section when two courses share a name.
+  const nameCount = {};
+  courses.forEach(c => { nameCount[c.name] = (nameCount[c.name] || 0) + 1; });
+  const clsOf = c => (nameCount[c.name] > 1 && c.section ? `${c.name} – ${c.section}` : c.name).trim();
+
+  const st = ss.getSheetByName('Students');
+  const old = st.getDataRange().getValues().slice(1);
+  const lastBy = {};
+  old.forEach(r => { const e = String(r[2] || '').trim().toLowerCase(); if (e && r[3] && !lastBy[e]) lastBy[e] = r[3]; });
+  const imported = new Set(courses.map(clsOf));
+  const rows = old.filter(r => String(r[0] || '').trim() && !imported.has(String(r[0]).trim())
+    && String(r[2] || '').includes('@') && String(r[2]).trim() !== 'student@ics.edu.jo');   // drop setup()'s example row
+
+  const coTeachers = {};
+  let noEmail = 0;
+  const summary = [];
+  courses.forEach(c => {
+    const cls = clsOf(c);
+    let count = 0;
+    pageAll_(t => Classroom.Courses.Students.list(c.id, { pageToken: t }), 'students').forEach(s => {
+      const email = String((s.profile && s.profile.emailAddress) || '').toLowerCase();
+      if (!email) { noEmail++; return; }
+      rows.push([cls, (s.profile.name && s.profile.name.fullName) || email, email, lastBy[email] || '']);
+      count++;
+    });
+    pageAll_(t => Classroom.Courses.Teachers.list(c.id, { pageToken: t }), 'teachers').forEach(t => {
+      const email = String((t.profile && t.profile.emailAddress) || '').toLowerCase();
+      if (email && email !== owner) coTeachers[email] = (t.profile.name && t.profile.name.fullName) || email;
+    });
+    summary.push(`${cls}: ${count} student(s)`);
+  });
+
+  rows.sort((a, b) => String(a[0]).localeCompare(String(b[0])) || String(a[1]).localeCompare(String(b[1])));
+  if (st.getLastRow() > 1) st.getRange(2, 1, st.getLastRow() - 1, 4).clearContent();
+  if (rows.length) st.getRange(2, 1, rows.length, 4).setValues(rows);
+
+  const tt = ss.getSheetByName('Teachers');
+  const have = new Set(tt.getDataRange().getValues().slice(1).map(r => String(r[0] || '').trim().toLowerCase()));
+  const add = Object.keys(coTeachers).filter(e => !have.has(e)).map(e => [e, coTeachers[e]]);
+  if (add.length) tt.getRange(tt.getLastRow() + 1, 1, add.length, 2).setValues(add);
+
+  CacheService.getScriptCache().remove('roster');
+  Logger.log(`Imported ${courses.length} class(es):\n  ` + summary.join('\n  '));
+  if (add.length) Logger.log(`Added ${add.length} co-teacher(s): ` + add.map(a => a[1]).join(', '));
+  if (noEmail) Logger.log(`⚠ ${noEmail} student(s) were skipped because Classroom did not share their email address.`);
+  Logger.log('Class list: ' + ss.getUrl());
+}
+
+function pageAll_(fetchPage, key) {
+  let out = [], token;
+  do {
+    const r = fetchPage(token) || {};
+    out = out.concat(r[key] || []);
+    token = r.nextPageToken;
+  } while (token);
+  return out;
+}
+
 function rootFolder_() {
   const id = PROPS.getProperty('ROOT');
   if (id) { try { const f = DriveApp.getFolderById(id); if (!f.isTrashed()) return f; } catch (e) {} }
@@ -62,12 +137,15 @@ function roster_() {
   const hit = cache.get('roster');
   if (hit) return JSON.parse(hit);
   const ss = SpreadsheetApp.openById(PROPS.getProperty('SHEET'));
+  // A student may appear on several rows (one per class); the first row holds "Last active".
   const students = {};
   ss.getSheetByName('Students').getDataRange().getValues().slice(1).forEach((r, i) => {
     const email = String(r[2] || '').trim().toLowerCase();
     if (!email || !email.includes('@')) return;
+    const cls = String(r[0] || '').trim() || 'No class';
+    if (students[email]) { if (!students[email].classes.includes(cls)) students[email].classes.push(cls); return; }
     students[email] = {
-      cls: String(r[0] || '').trim() || 'No class',
+      classes: [cls],
       name: String(r[1] || '').trim() || email,
       row: i + 2,
       last: r[3] instanceof Date ? r[3].getTime() : null,
@@ -90,7 +168,7 @@ function me_() {
   if (!email) throw new Error('Not signed in');
   const r = roster_();
   if (r.teachers[email]) return { email, role: 'teacher', name: r.teachers[email] };
-  if (r.students[email]) return { email, role: 'student', name: r.students[email].name, cls: r.students[email].cls };
+  if (r.students[email]) return { email, role: 'student', name: r.students[email].name, cls: r.students[email].classes.join(', ') };
   return { email, role: 'none', name: email };
 }
 
@@ -115,7 +193,7 @@ function folderFor_(email) {
     if (again && again !== id) return DriveApp.getFolderById(again);
     const r = roster_();
     const s = r.students[email];
-    const parent = childFolder_(rootFolder_(), s ? s.cls : 'Teachers');
+    const parent = childFolder_(rootFolder_(), s ? s.classes[0] : 'Teachers');
     const folder = parent.createFolder(s ? `${s.name} (${email})` : email);
     PROPS.setProperty(key, folder.getId());
     return folder;
@@ -235,7 +313,7 @@ function listClasses() {
   const classes = {};
   Object.keys(r.students).forEach(email => {
     const s = r.students[email];
-    (classes[s.cls] = classes[s.cls] || []).push({ email, name: s.name, last: s.last });
+    s.classes.forEach(cls => (classes[cls] = classes[cls] || []).push({ email, name: s.name, last: s.last }));
   });
   return Object.keys(classes).sort().map(name => ({
     name,

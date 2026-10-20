@@ -26,13 +26,24 @@ files are then saved only in that browser.
    Both are in your Drive, so you can find them again there.
 
 ## 3. Fill in the class list
+
+### Option A: import from Google Classroom (recommended)
+1. In the Apps Script editor's left panel, click **+** next to **Services**, choose **Google Classroom API**, and click **Add**.
+2. In the function menu, pick **`importFromClassroom`** and click **Run**. Allow the new Classroom permissions when asked.
+3. The log lists each class and how many students were imported. Open the class list to check it.
+
+Each active Classroom course where you're a teacher becomes a class, using the course name. If two courses have the same name, the section is added.
+Co-teachers are added to the **Teachers** tab. Run it again whenever students join or leave. It replaces the
+rows for Classroom classes, keeps any classes you typed in yourself, and keeps the "Last active" dates.
+
+### Option B: type it in
 In the **Students** tab, add one row per student:
 
 | Class | Student name | Email | Last active (automatic) |
 |---|---|---|---|
 | 9A | Sara Ahmad | sara.ahmad@ics.edu.jo | |
 
-- Delete the example row.
+- Delete the example row. A student in several classes gets one row per class.
 - To add other teachers, put their emails in the **Teachers** tab. You're always a teacher.
 - Changes reach PyStudio within about a minute.
 
