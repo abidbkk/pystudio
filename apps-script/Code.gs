@@ -48,12 +48,15 @@ function setup() {
 }
 
 /**
- * Fills the Students and Teachers tabs from your active Google Classroom classes.
- * Needs the "Google Classroom API" service (Services + in the left panel). Safe to run again:
- * - rows for classes that come from Classroom are replaced with the current Classroom roster;
- * - rows you typed for other classes are kept;
- * - "Last active" is kept for students already on the list;
- * - co-teachers are added to the Teachers tab (nobody is removed).
+ * Copies the Google Classroom courses you tick into PyStudio's class list.
+ * Needs the "Google Classroom API" service (Services + in the left panel). Safe to run again.
+ *
+ * 1. Lists all your active Classroom courses in the Courses tab. New courses start unticked;
+ *    your ticks and "Name in PyStudio" are kept.
+ * 2. Replaces the Students rows of Classroom classes with the current rosters of the ticked
+ *    courses (unticked ones are removed). Classes you typed in yourself are kept, and so is
+ *    "Last active".
+ * 3. Adds co-teachers of ticked courses to the Teachers tab (nobody is removed).
  */
 function importFromClassroom() {
   if (typeof Classroom === 'undefined') {
@@ -64,24 +67,42 @@ function importFromClassroom() {
   const courses = pageAll_(t => Classroom.Courses.list({ teacherId: 'me', courseStates: ['ACTIVE'], pageToken: t }), 'courses');
   if (!courses.length) { Logger.log('No active Google Classroom classes found where you are a teacher.'); return; }
 
-  // Course names become class names; add the section when two courses share a name.
+  // Default class name: the course name, plus the section when two courses share a name.
   const nameCount = {};
   courses.forEach(c => { nameCount[c.name] = (nameCount[c.name] || 0) + 1; });
-  const clsOf = c => (nameCount[c.name] > 1 && c.section ? `${c.name} – ${c.section}` : c.name).trim();
+  const defaultName = c => (nameCount[c.name] > 1 && c.section ? `${c.name} – ${c.section}` : c.name).trim();
 
+  // 1. Courses tab
+  const ct = coursesSheet_(ss);
+  const prev = {};
+  ct.getDataRange().getValues().slice(1).forEach(r => {
+    const id = String(r[4] || '').trim();
+    if (id) prev[id] = { use: r[0] === true, name: String(r[3] || '').trim() };
+  });
+  const crow = courses.map(c => [prev[c.id] ? prev[c.id].use : false, c.name, c.section || '', prev[c.id] ? prev[c.id].name : '', c.id]);
+  crow.sort((a, b) => String(a[1]).localeCompare(String(b[1])) || String(a[2]).localeCompare(String(b[2])));
+  if (ct.getLastRow() > 1) ct.getRange(2, 1, ct.getLastRow() - 1, 5).clearContent().removeCheckboxes();
+  ct.getRange(2, 1, crow.length, 5).setValues(crow);
+  ct.getRange(2, 1, crow.length, 1).insertCheckboxes();
+  const byId = {};
+  courses.forEach(c => { byId[c.id] = c; });
+  const picked = crow.filter(r => r[0] === true).map(r => ({ course: byId[r[4]], cls: r[3] || defaultName(byId[r[4]]) }));
+
+  // 2. Students tab. "Managed" classes are ones that came from Classroom (now or last time).
+  const managed = new Set(JSON.parse(PROPS.getProperty('CLASSROOM_CLASSES') || '[]'));
+  courses.forEach(c => managed.add(defaultName(c)));
+  picked.forEach(p => managed.add(p.cls));
   const st = ss.getSheetByName('Students');
   const old = st.getDataRange().getValues().slice(1);
   const lastBy = {};
   old.forEach(r => { const e = String(r[2] || '').trim().toLowerCase(); if (e && r[3] && !lastBy[e]) lastBy[e] = r[3]; });
-  const imported = new Set(courses.map(clsOf));
-  const rows = old.filter(r => String(r[0] || '').trim() && !imported.has(String(r[0]).trim())
+  const rows = old.filter(r => String(r[0] || '').trim() && !managed.has(String(r[0]).trim())
     && String(r[2] || '').includes('@') && String(r[2]).trim() !== 'student@ics.edu.jo');   // drop setup()'s example row
 
   const coTeachers = {};
   let noEmail = 0;
   const summary = [];
-  courses.forEach(c => {
-    const cls = clsOf(c);
+  picked.forEach(({ course: c, cls }) => {
     let count = 0;
     pageAll_(t => Classroom.Courses.Students.list(c.id, { pageToken: t }), 'students').forEach(s => {
       const email = String((s.profile && s.profile.emailAddress) || '').toLowerCase();
@@ -99,17 +120,37 @@ function importFromClassroom() {
   rows.sort((a, b) => String(a[0]).localeCompare(String(b[0])) || String(a[1]).localeCompare(String(b[1])));
   if (st.getLastRow() > 1) st.getRange(2, 1, st.getLastRow() - 1, 4).clearContent();
   if (rows.length) st.getRange(2, 1, rows.length, 4).setValues(rows);
+  PROPS.setProperty('CLASSROOM_CLASSES', JSON.stringify(picked.map(p => p.cls)));
 
+  // 3. Teachers tab
   const tt = ss.getSheetByName('Teachers');
   const have = new Set(tt.getDataRange().getValues().slice(1).map(r => String(r[0] || '').trim().toLowerCase()));
   const add = Object.keys(coTeachers).filter(e => !have.has(e)).map(e => [e, coTeachers[e]]);
   if (add.length) tt.getRange(tt.getLastRow() + 1, 1, add.length, 2).setValues(add);
 
   CacheService.getScriptCache().remove('roster');
-  Logger.log(`Imported ${courses.length} class(es):\n  ` + summary.join('\n  '));
+  if (!picked.length) {
+    Logger.log(`Found ${courses.length} Classroom course(s) and listed them in the Courses tab.\n` +
+      'Tick the ones you want in PyStudio, then run importFromClassroom again.');
+  } else {
+    Logger.log(`Imported ${picked.length} of ${courses.length} course(s):\n  ` + summary.join('\n  '));
+    const untickedNew = crow.filter(r => r[0] !== true && !prev[r[4]]).length;
+    if (untickedNew) Logger.log(`${untickedNew} new course(s) were added to the Courses tab unticked.`);
+  }
   if (add.length) Logger.log(`Added ${add.length} co-teacher(s): ` + add.map(a => a[1]).join(', '));
   if (noEmail) Logger.log(`⚠ ${noEmail} student(s) were skipped because Classroom did not share their email address.`);
   Logger.log('Class list: ' + ss.getUrl());
+}
+
+function coursesSheet_(ss) {
+  let ct = ss.getSheetByName('Courses');
+  if (ct) return ct;
+  ct = ss.insertSheet('Courses', 0);
+  ct.getRange(1, 1, 1, 5).setValues([['Use in PyStudio', 'Classroom course', 'Section', 'Name in PyStudio (optional)', "Course ID (don't edit)"]]).setFontWeight('bold');
+  ct.setFrozenRows(1);
+  ct.setColumnWidth(1, 120); ct.setColumnWidth(2, 240); ct.setColumnWidth(3, 100); ct.setColumnWidth(4, 200); ct.setColumnWidth(5, 160);
+  ct.getRange('E:E').setFontColor('#999999');
+  return ct;
 }
 
 function pageAll_(fetchPage, key) {

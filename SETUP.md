@@ -30,11 +30,16 @@ files are then saved only in that browser.
 ### Option A: import from Google Classroom (recommended)
 1. In the Apps Script editor's left panel, click **+** next to **Services**, choose **Google Classroom API**, and click **Add**.
 2. In the function menu, pick **`importFromClassroom`** and click **Run**. Allow the new Classroom permissions when asked.
-3. The log lists each class and how many students were imported. Open the class list to check it.
+   This first run only fills a new **Courses** tab in the class list with all your active Classroom courses, all unticked.
+3. Open the class list. In the **Courses** tab, tick **Use in PyStudio** for the courses you want.
+   You can also type a shorter **Name in PyStudio**, such as `9A`.
+4. Run **`importFromClassroom`** again. The **Students** tab now holds the students of the ticked courses,
+   and co-teachers of those courses are added to the **Teachers** tab.
 
-Each active Classroom course where you're a teacher becomes a class, using the course name. If two courses have the same name, the section is added.
-Co-teachers are added to the **Teachers** tab. Run it again whenever students join or leave. It replaces the
-rows for Classroom classes, keeps any classes you typed in yourself, and keeps the "Last active" dates.
+Run `importFromClassroom` again whenever students join or leave, or after you change the ticks.
+New Classroom courses appear in the Courses tab unticked. Unticking a course removes its students from PyStudio's list,
+but their files stay in Drive. Classes you typed into the Students tab yourself are never touched.
+You don't need to redeploy after an import.
 
 ### Option B: type it in
 In the **Students** tab, add one row per student:
