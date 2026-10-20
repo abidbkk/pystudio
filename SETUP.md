@@ -70,7 +70,7 @@ In the **Students** tab, add one row per student:
 ## Pseudocode
 **📝 Pseudocode** shows the current file as Cambridge IGCSE (0984) pseudocode next to the Python. It's view only.
 - It updates as you type. Click a pseudocode line to highlight the Python line it came from. Moving the cursor in the Python highlights the matching pseudocode lines.
-- It follows the syllabus style: `←`, `IF … THEN … ELSE … ENDIF` (Python `elif` is shown as `ELSEIF`), `CASE OF` (from Python `match`), `FOR … TO … STEP … NEXT`, `WHILE … DO … ENDWHILE`,
+- It follows the syllabus style: `←`, `IF … THEN`, `ELSEIF … THEN`, `ELSE`, `ENDIF` (THEN on the same line; Python `elif` becomes `ELSEIF`), `CASE OF` (from Python `match`), `FOR … TO … STEP … NEXT`, `WHILE … DO … ENDWHILE`,
   `REPEAT … UNTIL`, `PROCEDURE`/`FUNCTION … RETURNS`, `INPUT`/`OUTPUT`, `MOD`/`DIV`, `LENGTH`/`SUBSTRING`/`UCASE`/`LCASE`,
   `ROUND`/`RANDOM` and file handling.
 - Arrays keep Python's 0-based indexes, written as `ARRAY[0:n]`. `DECLARE` lines are added automatically, and names are written in PascalCase.

@@ -1509,19 +1509,19 @@ class Translator:
         return self.src.splitlines()[node.lineno - 1].lstrip().startswith("elif")
 
     def if_stmt(self, n, I, sc, tr):
-        self.emit(I, f"IF {self.sx(n.test, sc)}{tr}", n.lineno)
-        self.emit(I + "  ", "THEN", n.lineno)
+        # Layout: IF <condition> THEN / ELSEIF <condition> THEN / ELSE / ENDIF, bodies indented four spaces
+        self.emit(I, f"IF {self.sx(n.test, sc)} THEN{tr}", n.lineno)
         self.block(n.body, I + "    ", sc)
         node = n
         while len(node.orelse) == 1 and isinstance(node.orelse[0], ast.If) and self.is_elif(node.orelse[0]):
             e = node.orelse[0]
-            self.flush_comments(e.lineno, I + "  ")
-            self.ctx = (I + "  ", e.lineno)
-            self.emit(I + "  ", f"ELSEIF {self.sx(e.test, sc)}{self.trailing(e.lineno)}", e.lineno)
+            self.flush_comments(e.lineno, I)
+            self.ctx = (I, e.lineno)
+            self.emit(I, f"ELSEIF {self.sx(e.test, sc)} THEN{self.trailing(e.lineno)}", e.lineno)
             self.block(e.body, I + "    ", sc)
             node = e
         if node.orelse:
-            self.emit(I + "  ", "ELSE", node.orelse[0].lineno)
+            self.emit(I, "ELSE", node.orelse[0].lineno)
             self.block(node.orelse, I + "    ", sc)
         self.emit(I, "ENDIF", n.lineno)
 
