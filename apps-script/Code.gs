@@ -295,14 +295,33 @@ function meta_(file) {
   catch (e) { return { bps: [], v: 0, by: '' }; }
 }
 
+/** The file `id` if it is in `folder` or one of its (one level deep) subfolders. */
 function ownFile_(folder, id) {
   try {
     const f = DriveApp.getFileById(id);
     if (f.isTrashed()) return null;
     const ps = f.getParents();
-    while (ps.hasNext()) if (ps.next().getId() === folder.getId()) return f;
+    while (ps.hasNext()) {
+      const p = ps.next();
+      if (p.getId() === folder.getId()) return f;
+      const gs = p.getParents();
+      while (gs.hasNext()) if (gs.next().getId() === folder.getId() && !p.isTrashed()) return f;
+    }
   } catch (e) {}
   return null;
+}
+
+function cleanFolder_(name) {
+  return String(name || '').replace(/[\\/:*?"<>|\u0000-\u001f]/g, '').trim().slice(0, 40);
+}
+
+/** The subfolder `name` of `folder` ("" means `folder` itself), created if `create`. */
+function subfolder_(folder, name, create) {
+  name = cleanFolder_(name);
+  if (!name) return folder;
+  const it = folder.getFoldersByName(name);
+  while (it.hasNext()) { const f = it.next(); if (!f.isTrashed()) return f; }
+  return create ? folder.createFolder(name) : null;
 }
 
 function cleanName_(name) {
@@ -326,34 +345,45 @@ function whoAmI() {
 function listFiles(target, known, classKnown) {
   const me = me_();
   const email = target_(me, target);
-  const res = { files: filesIn_(folderFor_(email), known || {}) };
+  const res = filesIn_(folderFor_(email), known || {});
   if (email === me.email && me.role === 'student') {
     res.classes = roster_().students[me.email].classes.map(cls => {
       const folder = classFolder_(cls);
-      return { cls, files: folder ? filesIn_(folder, classKnown || {}) : [] };
+      return { cls, files: folder ? filesIn_(folder, classKnown || {}).files : [] };
     });
   }
   return res;
 }
 
+/** Files in `folder` (folder: "") and in each of its subfolders (folder: subfolder name). */
 function filesIn_(folder, known) {
-  const out = [];
-  const it = folder.getFiles();
+  const out = [], folders = [];
+  const add = (dir, name) => {
+    const it = dir.getFiles();
+    while (it.hasNext()) {
+      const f = it.next();
+      if (f.isTrashed()) continue;
+      const m = meta_(f);
+      const e = { id: f.getId(), name: f.getName(), folder: name, v: m.v, by: m.by };
+      if (known[e.id] !== m.v) { e.content = f.getBlob().getDataAsString('UTF-8'); e.bps = m.bps; }
+      out.push(e);
+    }
+  };
+  add(folder, '');
+  const it = folder.getFolders();
   while (it.hasNext()) {
-    const f = it.next();
-    if (f.isTrashed()) continue;
-    const m = meta_(f);
-    const e = { id: f.getId(), name: f.getName(), v: m.v, by: m.by };
-    if (known[e.id] !== m.v) { e.content = f.getBlob().getDataAsString('UTF-8'); e.bps = m.bps; }
-    out.push(e);
+    const d = it.next();
+    if (d.isTrashed()) continue;
+    folders.push(d.getName());
+    add(d, d.getName());
   }
-  return out;
+  return { files: out, folders };
 }
 
 /** Teachers only: copies a file into a class's shared files, replacing one with the same name. */
-function shareToClass(cls, name, content, bps) {
+function shareToClass(cls, name, content, bps, inFolder) {
   const me = me_();
-  const folder = folderFor_(target_(me, 'class:' + cls));
+  const folder = subfolder_(folderFor_(target_(me, 'class:' + cls)), inFolder || '', true);
   name = cleanName_(name);
   content = String(content == null ? '' : content);
   if (content.length > MAX_FILE_CHARS) throw new Error(`${name} is too large to share.`);
@@ -370,7 +400,8 @@ function shareToClass(cls, name, content, bps) {
 
 /**
  * Saves changes to `target`'s files.
- * upserts: [{key, id|null, base|null, name, content, bps}] — `base` is the version the edit started from.
+ * upserts: [{key, id|null, base|null, name, folder, content, bps}] — `base` is the version the edit
+ * started from; `folder` is a subfolder name or "".
  * If someone else saved the file since `base`, it is returned in `conflicts` instead of overwritten.
  */
 function syncFiles(target, upserts, deletes) {
@@ -383,6 +414,7 @@ function syncFiles(target, upserts, deletes) {
     if (content.length > MAX_FILE_CHARS) throw new Error(`${u.name} is too large to save.`);
     const name = cleanName_(u.name);
     const bps = Array.isArray(u.bps) ? u.bps.filter(n => typeof n === 'number').slice(0, 500) : [];
+    const dir = subfolder_(folder, u.folder, true);
     let f = u.id ? ownFile_(folder, u.id) : null;
     let v = 1;
     if (f) {
@@ -394,8 +426,12 @@ function syncFiles(target, upserts, deletes) {
       v = m.v + 1;
       f.setContent(content);
       if (f.getName() !== name) f.setName(name);
+      let here = false;
+      const ps = f.getParents();
+      while (ps.hasNext()) if (ps.next().getId() === dir.getId()) here = true;
+      if (!here) f.moveTo(dir);
     } else {
-      f = folder.createFile(name, content, MimeType.PLAIN_TEXT);
+      f = dir.createFile(name, content, MimeType.PLAIN_TEXT);
     }
     f.setDescription(JSON.stringify({ bps, v, by: me.email }));
     saved[u.key] = { id: f.getId(), v };
@@ -403,6 +439,26 @@ function syncFiles(target, upserts, deletes) {
   (deletes || []).forEach(id => { const f = ownFile_(folder, id); if (f) f.setTrashed(true); });
   touch_(me);
   return { saved, conflicts };
+}
+
+/** Creates, renames or deletes (moves to the Drive trash) one of `target`'s folders. */
+function folderOp(target, op, name, newName) {
+  const me = me_();
+  const folder = folderFor_(target_(me, target));
+  name = cleanFolder_(name);
+  if (!name) throw new Error('Folder names cannot be empty.');
+  if (op === 'create') { subfolder_(folder, name, true); return { ok: true }; }
+  const d = subfolder_(folder, name, false);
+  if (!d) { if (op === 'delete') return { ok: true }; throw new Error(`There is no folder called ${name}.`); }
+  if (op === 'rename') {
+    newName = cleanFolder_(newName);
+    if (!newName) throw new Error('Folder names cannot be empty.');
+    if (newName !== name && subfolder_(folder, newName, false)) throw new Error(`There is already a folder called ${newName}.`);
+    d.setName(newName);
+    return { ok: true };
+  }
+  if (op === 'delete') { d.setTrashed(true); return { ok: true }; }
+  throw new Error('Unknown folder action.');
 }
 
 /** Teachers only: classes and their students. */

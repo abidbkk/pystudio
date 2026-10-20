@@ -13,7 +13,7 @@
   <iframe id="app" allow="clipboard-read; clipboard-write"></iframe>
   <script>
     const APP_ORIGIN = "https://abidbkk.github.io";
-    const ALLOWED = ["whoAmI", "listFiles", "syncFiles", "listClasses", "shareToClass"];   // server functions PyStudio may call
+    const ALLOWED = ["whoAmI", "listFiles", "syncFiles", "listClasses", "shareToClass", "folderOp"];   // server functions PyStudio may call
     const app = document.getElementById("app");
     app.src = APP_ORIGIN + "/pystudio/?t=" + Date.now();   // always load the latest version
 

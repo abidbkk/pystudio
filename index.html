@@ -72,6 +72,19 @@ aside#files{grid-area:files;background:var(--panel);border-right:1px solid var(-
 #stuList li.active{background:var(--accent);color:var(--accent-text)}
 #stuList li small{color:var(--muted);font-size:11px;white-space:nowrap}
 #stuList li.active small{color:inherit;opacity:.8}
+#filelist li.folder{font-family:inherit;display:flex;align-items:center;gap:4px}
+#filelist li.folder .tw{width:10px;color:var(--muted);font-size:10px}
+#filelist li.folder .fn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+#filelist li.folder .cnt{color:var(--muted);font-size:11px}
+#filelist li.folder .fact{display:none;padding:0 3px;border-radius:4px;color:var(--muted);font-size:11px}
+#filelist li.folder .fact:hover{background:var(--btn-hover);color:var(--text)}
+#filelist li.folder:hover .fact{display:inline}
+#filelist li.folder .fact.armed{display:inline;color:var(--danger);font-weight:600;white-space:nowrap}
+#filelist li.folder.sel{box-shadow:inset 0 0 0 1px var(--border)}
+#filelist li.in,#classlist li.in{padding-left:34px}
+#filelist li.empty{color:var(--muted);font-size:11px;font-style:italic;cursor:default;font-family:inherit}
+#filelist li.drop,#filesTitle.drop{background:var(--cur)}
+#moveSel{font:inherit;font-size:12px;color:var(--text);background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:4px}
 #filelist input{width:100%;font-family:var(--mono);font-size:13px;padding:3px 5px}
 .filebtns{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:8px}
 .filebtns button{font-size:12px;padding:4px 6px}
@@ -159,11 +172,14 @@ tr.chg td{background:var(--changed)}
       <ul id="classlist"></ul>
     </div>
     <div class="filebtns">
-      <button id="fNew">+ New</button>
+      <button id="fNew" title="New file in the open folder">+ New</button>
+      <button id="fFolder" title="Make a new folder">+ Folder</button>
       <button id="fRename">Rename</button>
+      <button id="fMove" title="Move this file into a folder (or drag it)">Move</button>
       <button id="fUpload">Upload</button>
       <button id="fDownload">Download</button>
       <button id="fDelete" class="danger" style="grid-column:span 2">Delete</button>
+      <select id="moveSel" class="hidden" style="grid-column:span 2"></select>
       <button id="fShare" class="hidden" style="grid-column:span 2" title="Copy this file into a class's shared Class files">📤 Share to class</button>
       <select id="shareSel" class="hidden" style="grid-column:span 2"></select>
     </div>
@@ -786,6 +802,8 @@ function saveCurrent() {
 function loadFile(name) {
   viewingClassFile = null;
   current = name;
+  curFolder = splitPath(name)[0];
+  if (curFolder) openFolders.add(curFolder);
   loading = true;
   cm.setValue(files[name].code);
   cm.clearHistory();
@@ -796,12 +814,36 @@ function loadFile(name) {
   renderFiles();
 }
 
-// ---------- files ----------
-let renaming = false;
+// ---------- files & folders ----------
+// Files are keyed by path: "name.py", or "Folder/name.py" inside a folder (one level deep).
+let renaming = false, folderBusy = false, folderSet = new Set(), openFolders = new Set(), curFolder = "";
+const splitPath = k => { const i = k.indexOf("/"); return i < 0 ? ["", k] : [k.slice(0, i), k.slice(i + 1)]; };
+const joinPath = (folder, name) => folder ? folder + "/" + name : name;
+const cleanFolder = n => String(n || "").replace(/[\\/:*?"<>|]/g, "").trim().slice(0, 40);
+function allFolders() {
+  const s = new Set(folderSet);
+  for (const k of Object.keys(files || {})) { const [fo] = splitPath(k); if (fo) s.add(fo); }
+  return [...s].sort((a, b) => a.localeCompare(b));
+}
+const openKey = () => "pystudio.open." + (view ? view.target : "local");
+function saveOpen() { store.set(openKey(), [...openFolders]); }
+
 function renderFiles() {
-  const ul = $("#filelist");
-  ul.innerHTML = Object.keys(files).sort().map(n =>
-    `<li class="${n === current && !viewingClassFile ? "active" : ""}" data-name="${esc(n)}" title="Double-click to rename">${esc(n)}</li>`).join("");
+  const byFolder = new Map(allFolders().map(f => [f, []])), root = [];
+  for (const k of Object.keys(files)) { const [fo, n] = splitPath(k); (fo ? byFolder.get(fo) : root).push([k, n]); }
+  const byName = (a, b) => a[1].localeCompare(b[1]);
+  const fileLi = ([k, n], inside) =>
+    `<li class="file${inside ? " in" : ""}${k === current && !viewingClassFile ? " active" : ""}" data-name="${esc(k)}" draggable="true" title="Double-click to rename · drag onto a folder to move">${esc(n)}</li>`;
+  let html = "";
+  for (const [fo, list] of byFolder) {
+    const open = openFolders.has(fo);
+    html += `<li class="folder${curFolder === fo ? " sel" : ""}" data-folder="${esc(fo)}" title="Click to open or close">` +
+      `<span class="tw">${open ? "▾" : "▸"}</span>📁 <span class="fn">${esc(fo)}</span><span class="cnt">${list.length}</span>` +
+      `<span class="fact" data-fact="rename" title="Rename folder">✎</span><span class="fact" data-fact="delete" title="Delete folder">✕</span></li>`;
+    if (open) html += list.sort(byName).map(x => fileLi(x, true)).join("") || `<li class="in empty">empty — drag files here</li>`;
+  }
+  html += root.sort(byName).map(x => fileLi(x, false)).join("");
+  $("#filelist").innerHTML = html;
   renderClassFiles();
 }
 
@@ -810,11 +852,15 @@ let classFiles = [], viewingClassFile = null;
 function renderClassFiles() {
   $("#classsec").classList.toggle("hidden", !classFiles.length);
   const groups = [...new Set(classFiles.map(f => f.cls))], several = groups.length > 1;
-  $("#classlist").innerHTML = groups.map(g =>
-    (several ? `<li class="grp">${esc(g)}</li>` : "") +
-    classFiles.filter(f => f.cls === g).sort((a, b) => a.name.localeCompare(b.name)).map(f =>
-      `<li class="${viewingClassFile && viewingClassFile.id === f.id ? "active" : ""}" data-id="${esc(f.id)}" title="From your teacher. Start typing to make your own copy.">📄 ${esc(f.name)}</li>`
-    ).join("")).join("");
+  $("#classlist").innerHTML = groups.map(g => {
+    let html = several ? `<li class="grp">${esc(g)}</li>` : "", last = null;
+    const list = classFiles.filter(f => f.cls === g).sort((a, b) => (a.folder || "").localeCompare(b.folder || "") || a.name.localeCompare(b.name));
+    for (const f of list) {
+      if ((f.folder || "") !== last) { last = f.folder || ""; if (last) html += `<li class="grp">📁 ${esc(last)}</li>`; }
+      html += `<li class="${viewingClassFile && viewingClassFile.id === f.id ? "active" : ""}${f.folder ? " in" : ""}" data-id="${esc(f.id)}" title="From your teacher. Start typing to make your own copy.">📄 ${esc(f.name)}</li>`;
+    }
+    return html;
+  }).join("");
 }
 function openClassFile(f) {
   saveCurrent(); endDebug(); clearMarks();
@@ -823,17 +869,18 @@ function openClassFile(f) {
   cm.setValue(f.code); cm.clearHistory();
   for (const l of f.bps || []) if (l - 1 < cm.lineCount()) cm.setGutterMarker(l - 1, "bp-gutter", bpMarker());
   loading = false;
-  $("#fname").textContent = f.name + " (class file)";
+  $("#fname").textContent = joinPath(f.folder, f.name) + " (class file)";
   renderFiles();
   banner("This file is from your teacher. Run or debug it — or start typing to make your own copy.", 5000);
 }
-// The first edit to a class file turns it into the student's own file.
+// The first edit to a class file turns it into the student's own file (in a folder of the same name).
 function forkClassFile() {
-  const f = viewingClassFile;
+  const f = viewingClassFile, fo = f.folder || "";
   viewingClassFile = null;
-  const n = uniqueName(f.name);
+  const n = uniqueName(f.name, files, fo);
   files[n] = { code: cm.getValue(), bps: getBps() };
-  current = n;
+  if (fo) { folderSet.add(fo); openFolders.add(fo); saveOpen(); }
+  current = n; curFolder = fo;
   $("#fname").textContent = n;
   store.set(curKey(), n);
   renderFiles(); persist();
@@ -844,7 +891,7 @@ function mergeClassFiles(groups) {
   const old = new Map(classFiles.map(f => [f.id, f]));
   classFiles = groups.flatMap(g => g.files.map(x => {
     const o = old.get(x.id);
-    return { cls: g.cls, id: x.id, name: x.name, v: x.v, code: x.content ?? o?.code ?? "", bps: x.bps ?? o?.bps ?? [] };
+    return { cls: g.cls, id: x.id, name: x.name, folder: x.folder || "", v: x.v, code: x.content ?? o?.code ?? "", bps: x.bps ?? o?.bps ?? [] };
   }));
   if (viewingClassFile) {
     const now = classFiles.find(f => f.id === viewingClassFile.id);
@@ -862,43 +909,80 @@ $("#classlist").addEventListener("click", e => {
   const f = classFiles.find(f => f.id === li.dataset.id);
   if (f) openClassFile(f);
 });
+
+// ---------- file list: clicks, renaming, drag and drop ----------
 $("#filelist").addEventListener("click", e => {
-  const li = e.target.closest("li"); if (!li || renaming) return;
+  if (renaming) return;
+  const fol = e.target.closest("li.folder");
+  if (fol) {
+    const fo = fol.dataset.folder, act = e.target.closest(".fact")?.dataset.fact;
+    if (act === "rename") return startFolderRename(fol);
+    if (act === "delete") return askDeleteFolder(fol);
+    curFolder = fo;
+    openFolders.has(fo) ? openFolders.delete(fo) : openFolders.add(fo);
+    saveOpen(); renderFiles();
+    return;
+  }
+  const li = e.target.closest("li.file"); if (!li) return;
   const n = li.dataset.name; if (n === current && !viewingClassFile) return;
   saveCurrent(); endDebug(); clearMarks(); loadFile(n);
 });
-$("#filelist").addEventListener("dblclick", e => { if (e.target.closest("li") && !viewingClassFile) startRename(); });
-function uniqueName(base, within = files) {
+$("#filelist").addEventListener("dblclick", e => {
+  if (renaming || e.target.closest("li.folder")) return;
+  if (e.target.closest("li.file") && !viewingClassFile) startRename();
+});
+$("#filesTitle").addEventListener("click", () => { if (curFolder) { curFolder = ""; renderFiles(); } });
+$("#filelist").addEventListener("dragstart", e => {
+  const li = e.target.closest("li.file"); if (!li) return;
+  e.dataTransfer.setData("text/x-pystudio", li.dataset.name); e.dataTransfer.effectAllowed = "move";
+});
+const dropOn = e => e.target.closest("#filelist li.folder") || e.target.closest("#filesTitle");
+function markDrop(t) { document.querySelectorAll(".drop").forEach(x => x.classList.remove("drop")); if (t) t.classList.add("drop"); }
+for (const el of [$("#filelist"), $("#filesTitle")]) {
+  el.addEventListener("dragover", e => { const t = dropOn(e); if (t && e.dataTransfer.types.includes("text/x-pystudio")) { e.preventDefault(); markDrop(t); } });
+  el.addEventListener("dragleave", () => markDrop(null));
+  el.addEventListener("drop", e => {
+    const t = dropOn(e); markDrop(null);
+    if (!t) return;
+    e.preventDefault();
+    moveFile(e.dataTransfer.getData("text/x-pystudio"), t.dataset.folder || "");
+  });
+}
+
+// Returns a free path for `base` inside `folder` ("" = not in a folder).
+function uniqueName(base, within = files, folder = "") {
   base = base.replace(/[\\/:*?"<>|]/g, "").trim() || "untitled.py";
   if (!/\.py$/i.test(base)) base += ".py";
-  if (!within[base]) return base;
+  const key = n => joinPath(folder, n);
+  if (!within[key(base)]) return key(base);
   const stem = base.replace(/\.py$/i, "");
-  for (let i = 2; ; i++) if (!within[`${stem}${i}.py`]) return `${stem}${i}.py`;
+  for (let i = 2; ; i++) if (!within[key(`${stem}${i}.py`)]) return key(`${stem}${i}.py`);
 }
 $("#fNew").onclick = () => {
   saveCurrent(); endDebug();
-  const n = uniqueName("untitled.py");
+  const n = uniqueName("untitled.py", files, curFolder);
   files[n] = { code: "", bps: [] };
   loadFile(n); persist();
   startRename();
 };
 function startRename() {
-  const li = $(`#filelist li.active`); if (!li) return;
+  const li = $(`#filelist li.file.active`); if (!li) return;
   renaming = true;
+  const [fo, base] = splitPath(current);
   const inp = document.createElement("input");
-  inp.value = current; li.textContent = ""; li.appendChild(inp);
-  inp.focus(); inp.setSelectionRange(0, current.replace(/\.py$/i, "").length);
+  inp.value = base; li.textContent = ""; li.appendChild(inp);
+  inp.focus(); inp.setSelectionRange(0, base.replace(/\.py$/i, "").length);
   let done = false;
   const finish = ok => {
     if (done) return; done = true; renaming = false;
     let v = inp.value.trim();
-    if (ok && v && v !== current) {
-      if (!/\.py$/i.test(v)) v += ".py";
-      v = v === current ? v : uniqueName(v);
+    if (ok && v && !/\.py$/i.test(v)) v += ".py";
+    if (ok && v && v !== base) {
+      const nk = uniqueName(v, files, fo);
       saveCurrent();
-      files[v] = files[current]; delete files[current]; current = v;
+      files[nk] = files[current]; delete files[current]; current = nk;
       persist();
-      $("#fname").textContent = v; store.set(curKey(), v);
+      $("#fname").textContent = nk; store.set(curKey(), nk);
     }
     renderFiles();
   };
@@ -910,25 +994,155 @@ let delArmed = null;
 $("#fDelete").onclick = () => {
   if (viewingClassFile) return banner("Class files come from your teacher and can't be deleted.", 4000);
   const b = $("#fDelete");
-  if (!delArmed) { b.textContent = `Really delete ${current}?`; delArmed = setTimeout(() => { delArmed = null; b.textContent = "Delete"; }, 3000); return; }
+  if (!delArmed) { b.textContent = `Really delete ${splitPath(current)[1]}?`; delArmed = setTimeout(() => { delArmed = null; b.textContent = "Delete"; }, 3000); return; }
   clearTimeout(delArmed); delArmed = null; b.textContent = "Delete";
+  const fo = splitPath(current)[0];
   endDebug(); delete files[current];
   if (!Object.keys(files).length) files["untitled.py"] = { code: "", bps: [], placeholder: true };
   persist();
-  loadFile(Object.keys(files).sort()[0]);
+  const keys = Object.keys(files).sort();
+  loadFile(keys.find(k => splitPath(k)[0] === fo) || keys[0]);
 };
 $("#fDownload").onclick = () => {
   saveCurrent();
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([cm.getValue()], { type: "text/x-python" }));
-  a.download = viewingClassFile ? viewingClassFile.name : current; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  a.download = viewingClassFile ? viewingClassFile.name : splitPath(current)[1]; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 };
 $("#fUpload").onclick = () => $("#upload").click();
 $("#upload").onchange = async e => {
   saveCurrent(); let last;
-  for (const f of e.target.files) { last = uniqueName(f.name); files[last] = { code: await f.text(), bps: [] }; }
+  for (const f of e.target.files) { last = uniqueName(f.name, files, curFolder); files[last] = { code: await f.text(), bps: [] }; }
   e.target.value = "";
   if (last) { persist(); endDebug(); loadFile(last); }
+};
+
+// ---------- folders ----------
+$("#fFolder").onclick = () => {
+  if (renaming) return;
+  renaming = true;
+  const li = document.createElement("li"), inp = document.createElement("input");
+  li.className = "folder"; inp.placeholder = "Folder name"; inp.maxLength = 40;
+  li.append("📁 ", inp); $("#filelist").prepend(li); inp.focus();
+  let done = false;
+  const finish = async ok => {
+    if (done) return; done = true; renaming = false;
+    const name = cleanFolder(inp.value);
+    if (!ok || !name) return renderFiles();
+    if (allFolders().includes(name)) { banner(`There is already a folder called ${name}.`, 4000); return renderFiles(); }
+    folderSet.add(name); openFolders.add(name); curFolder = name;
+    saveOpen(); persist(); renderFiles();
+    if (mode === "cloud") {
+      folderBusy = true;
+      try { await bridge.call("folderOp", view.target, "create", name); }
+      catch (e) { banner("Could not create the folder: " + e.message, 6000); }
+      finally { folderBusy = false; }
+    }
+  };
+  inp.onkeydown = e => { if (e.key === "Enter") finish(true); if (e.key === "Escape") finish(false); };
+  inp.onblur = () => finish(true);
+};
+function startFolderRename(li) {
+  const old = li.dataset.folder;
+  renaming = true;
+  const inp = document.createElement("input");
+  inp.value = old; inp.maxLength = 40;
+  li.querySelector(".fn").replaceWith(inp);
+  li.querySelectorAll(".fact,.cnt").forEach(x => x.remove());
+  inp.onclick = e => e.stopPropagation();
+  inp.focus(); inp.select();
+  let done = false;
+  const finish = ok => {
+    if (done) return; done = true; renaming = false;
+    const name = cleanFolder(inp.value);
+    if (!ok || !name || name === old) return renderFiles();
+    renameFolder(old, name);
+  };
+  inp.onkeydown = e => { if (e.key === "Enter") finish(true); if (e.key === "Escape") finish(false); };
+  inp.onblur = () => finish(true);
+}
+async function renameFolder(old, name) {
+  if (allFolders().includes(name)) { banner(`There is already a folder called ${name}.`, 4000); return renderFiles(); }
+  saveCurrent();
+  if (mode === "cloud") {
+    if (!(await saveNow())) { banner("Could not save your changes — try again.", 5000); return renderFiles(); }
+    const ctx = ctxN;
+    folderBusy = true;
+    try { await bridge.call("folderOp", view.target, "rename", old, name); }
+    catch (e) { banner("Could not rename the folder: " + e.message, 6000); return renderFiles(); }
+    finally { folderBusy = false; }
+    if (ctx !== ctxN) return;
+  }
+  for (const k of Object.keys(files)) {
+    const [fo, n] = splitPath(k);
+    if (fo !== old) continue;
+    const nk = joinPath(name, n);
+    files[nk] = files[k]; delete files[k];
+    if (files[nk].id) synced.set(files[nk].id, sigOf(nk, files[nk]));   // already moved on the server
+    if (current === k) { current = nk; if (!viewingClassFile) $("#fname").textContent = nk; store.set(curKey(), nk); }
+  }
+  folderSet.delete(old); folderSet.add(name);
+  if (openFolders.delete(old)) openFolders.add(name);
+  if (curFolder === old) curFolder = name;
+  saveOpen(); persist(); renderFiles();
+}
+function askDeleteFolder(li) {
+  const fo = li.dataset.folder, x = li.querySelector('[data-fact="delete"]');
+  if (x.dataset.armed) return deleteFolder(fo);
+  const n = Object.keys(files).filter(k => splitPath(k)[0] === fo).length;
+  x.dataset.armed = "1"; x.classList.add("armed");
+  x.textContent = n ? `Delete folder and ${n} file${n > 1 ? "s" : ""}?` : "Delete folder?";
+  setTimeout(() => { if (!renaming && x.isConnected) renderFiles(); }, 3500);
+}
+async function deleteFolder(fo) {
+  saveCurrent();
+  if (mode === "cloud") {
+    if (!(await saveNow())) { banner("Could not save your changes — try again.", 5000); return renderFiles(); }
+    const ctx = ctxN;
+    folderBusy = true;
+    try { await bridge.call("folderOp", view.target, "delete", fo); }
+    catch (e) { banner("Could not delete the folder: " + e.message, 6000); return renderFiles(); }
+    finally { folderBusy = false; }
+    if (ctx !== ctxN) return;
+  }
+  for (const k of Object.keys(files)) {
+    if (splitPath(k)[0] !== fo) continue;
+    if (files[k].id) synced.delete(files[k].id);   // trashed together with the folder
+    delete files[k];
+  }
+  folderSet.delete(fo); openFolders.delete(fo);
+  if (curFolder === fo) curFolder = "";
+  if (!Object.keys(files).length) files["untitled.py"] = { code: "", bps: [], placeholder: true };
+  saveOpen(); persist();
+  if (!files[current] && !viewingClassFile) { endDebug(); loadFile(Object.keys(files).sort()[0]); } else renderFiles();
+  banner(`Deleted folder ${fo}` + (mode === "cloud" ? " — it's in the Google Drive trash if you need it back" : ""), 5000);
+}
+function moveFile(key, folder) {
+  if (!files[key]) return;
+  const [fo, n] = splitPath(key);
+  if (fo === folder) return;
+  saveCurrent();
+  const nk = uniqueName(n, files, folder);
+  files[nk] = files[key]; delete files[key];
+  if (current === key) { current = nk; if (!viewingClassFile) $("#fname").textContent = nk; store.set(curKey(), nk); }
+  if (folder) { folderSet.add(folder); openFolders.add(folder); }
+  curFolder = folder;
+  saveOpen(); persist(); renderFiles();
+  banner(folder ? `Moved ${n} to ${folder}` : `Moved ${n} out of ${fo}`, 3000);
+}
+$("#fMove").onclick = () => {
+  if (viewingClassFile) return banner("Start typing to make your own copy first, then you can move it.", 4000);
+  const [fo, n] = splitPath(current), opts = allFolders().filter(f => f !== fo);
+  if (!opts.length && !fo) return banner("Make a folder first with + Folder.", 4000);
+  const sel = $("#moveSel");
+  sel.innerHTML = `<option value="">Move ${esc(n)} to…</option>` + (fo ? `<option value="/">(not in a folder)</option>` : "") +
+    opts.map(f => `<option value="${esc(f)}">📁 ${esc(f)}</option>`).join("");
+  sel.classList.remove("hidden"); sel.focus();
+};
+$("#moveSel").onchange = () => {
+  const sel = $("#moveSel"), v = sel.value;
+  sel.classList.add("hidden");
+  if (v) moveFile(current, v === "/" ? "" : v);
 };
 
 // ---------- worker ----------
@@ -1391,7 +1605,7 @@ function localFiles() {
 }
 function persist() {
   if (!files) return;
-  if (mode === "local") { store.set("pystudio.files", files); return; }
+  if (mode === "local") { store.set("pystudio.files", files); store.set("pystudio.folders", [...folderSet]); return; }
   setSaveState("saving");
   clearTimeout(flushT); flushT = setTimeout(flush, 1500);
 }
@@ -1408,7 +1622,8 @@ async function flush() {
     const sig = sigOf(name, f);
     if (f.id && synced.get(f.id) === sig) continue;
     const key = f.id || (f.tmp ||= "new" + (++tmpN));
-    upserts.push({ key, id: f.id || null, base: f.id ? (f.v ?? null) : null, name, content: f.code, bps: f.bps || [] });
+    const [folder, fname] = splitPath(name);
+    upserts.push({ key, id: f.id || null, base: f.id ? (f.v ?? null) : null, name: fname, folder, content: f.code, bps: f.bps || [] });
     sent.set(key, [f, sig]);
   }
   for (const id of synced.keys()) if (!seen.has(id)) deletes.push(id);
@@ -1443,10 +1658,12 @@ function resolveConflict(c, entry) {
   const f = entry && entry[0];
   const name = Object.keys(files).find(n => files[n] === f);
   if (!name) return;
-  const mine = uniqueName(name.replace(/\.py$/i, "") + "-mine.py");
+  const [fo, base] = splitPath(name);
+  const mine = uniqueName(base.replace(/\.py$/i, "") + "-mine.py", files, fo);
   files[mine] = { code: f.code, bps: f.bps || [] };
   delete files[name];
-  const theirsName = files[c.name] ? name : c.name;
+  const theirsPath = joinPath(c.folder || "", c.name);
+  const theirsName = files[theirsPath] ? name : theirsPath;
   files[theirsName] = { code: c.content, bps: c.bps || [], id: c.id, v: c.v };
   synced.set(c.id, sigOf(theirsName, files[theirsName]));
   if (current === name) { current = theirsName; reloadEditor(); }
@@ -1487,18 +1704,22 @@ function schedulePoll() {
 }
 async function poll() {
   if (mode !== "cloud") return;
-  if (inflight || flushT || document.hidden || renaming) return schedulePoll();
+  if (inflight || flushT || document.hidden || renaming || folderBusy) return schedulePoll();
   const ctx = ctxN, known = {}, classKnown = {};
   for (const f of Object.values(files)) if (f.id) known[f.id] = f.v;
   for (const f of classFiles) classKnown[f.id] = f.v;
   try {
     const r = await bridge.call("listFiles", view.target, known, classKnown);
     if (ctx === ctxN) mergeClassFiles(r.classes);
-    if (ctx === ctxN && !inflight && !flushT) mergeRemote(r.files);
+    if (ctx === ctxN && !inflight && !flushT && !folderBusy && !renaming) {
+      const before = allFolders().join("/");
+      if (r.folders) folderSet = new Set(r.folders);
+      mergeRemote(r.files, before !== allFolders().join("/"));
+    }
   } catch (e) { console.warn("Refresh failed", e); }
   if (ctx === ctxN) schedulePoll();
 }
-function mergeRemote(list) {
+function mergeRemote(list, foldersChanged) {
   const nameById = new Map(Object.entries(files).filter(([, f]) => f.id).map(([n, f]) => [f.id, n]));
   const ids = new Set();
   let changed = false;
@@ -1507,7 +1728,8 @@ function mergeRemote(list) {
     const name = nameById.get(s.id);
     if (name == null) {
       if (synced.has(s.id) || s.content === undefined) continue;   // deleted here, not saved yet
-      const n = uniqueName(s.name);
+      const sp = joinPath(s.folder || "", s.name);
+      const n = files[sp] ? uniqueName(s.name, files, s.folder || "") : sp;
       files[n] = { code: s.content, bps: s.bps || [], id: s.id, v: s.v };
       synced.set(s.id, sigOf(n, files[n]));
       changed = true;
@@ -1518,7 +1740,8 @@ function mergeRemote(list) {
     if (synced.get(s.id) !== sigOf(name, f)) continue;   // unsaved edits here; saving sorts it out
     if (dbg && name === current) continue;               // don't change code under the debugger
     delete files[name];
-    const n = s.name === name || !files[s.name] ? s.name : name;
+    const sp = joinPath(s.folder || "", s.name);
+    const n = sp === name || !files[sp] ? sp : name;
     files[n] = { code: s.content, bps: s.bps || [], id: s.id, v: s.v };
     synced.set(s.id, sigOf(n, files[n]));
     if (current === name) {
@@ -1530,7 +1753,7 @@ function mergeRemote(list) {
   for (const [name, f] of Object.entries(files)) {
     if (f.id && !ids.has(f.id) && synced.get(f.id) === sigOf(name, f)) { delete files[name]; synced.delete(f.id); changed = true; }
   }
-  if (!changed) return;
+  if (!changed) { if (foldersChanged) renderFiles(); return; }
   if (!Object.keys(files).length) files["untitled.py"] = { code: "", bps: [], placeholder: true };
   if (!files[current]) loadFile(Object.keys(files).sort()[0]); else renderFiles();
 }
@@ -1553,6 +1776,8 @@ addEventListener("offline", () => { if (mode === "cloud" && (inflight || flushT)
 function switchFiles(newMode, f) {
   endDebug(); clearMarks(); showOutput("");
   mode = newMode; files = f;
+  openFolders = new Set(store.get(openKey(), []));
+  curFolder = "";
   current = store.get(curKey(), null);
   if (!files[current]) current = Object.keys(files).sort()[0];
   loadFile(current);
@@ -1560,7 +1785,7 @@ function switchFiles(newMode, f) {
   setSaveState(mode === "local" ? "local" : "saved");
   schedulePoll();
 }
-function useLocal() { view = null; synced = new Map(); switchFiles("local", localFiles()); }
+function useLocal() { view = null; synced = new Map(); folderSet = new Set(store.get("pystudio.folders", [])); switchFiles("local", localFiles()); }
 
 async function openView(target, label, isMe) {
   saveCurrent();
@@ -1577,11 +1802,13 @@ async function openView(target, label, isMe) {
   if (ctx !== ctxN) return;
   const f = {}, s = new Map();
   for (const x of r.files) {
-    const n = uniqueName(x.name, f);
+    const xp = joinPath(x.folder || "", x.name);
+    const n = f[xp] ? uniqueName(x.name, f, x.folder || "") : xp;
     f[n] = { code: x.content ?? "", bps: x.bps || [], id: x.id, v: x.v };
     s.set(x.id, sigOf(n, f[n]));
   }
   synced = s;
+  folderSet = new Set(r.folders || []);
   view = { target, label, isMe, isClass: target.startsWith("class:") };
   classFiles = []; viewingClassFile = null;
   mergeClassFiles(r.classes);
@@ -1647,7 +1874,7 @@ $("#btnMine").onclick = () => openView(me.email, me.name, true);
 $("#fShare").onclick = () => {
   const sel = $("#shareSel");
   if (!classes.length) return banner("No classes yet — add students to the class list first.", 4000);
-  sel.innerHTML = `<option value="">Share ${esc(current)} with…</option>` + classes.map(c => `<option>${esc(c.name)}</option>`).join("");
+  sel.innerHTML = `<option value="">Share ${esc(splitPath(current)[1])} with…</option>` + classes.map(c => `<option>${esc(c.name)}</option>`).join("");
   sel.classList.remove("hidden"); sel.focus();
 };
 $("#shareSel").onchange = async () => {
@@ -1655,10 +1882,10 @@ $("#shareSel").onchange = async () => {
   sel.classList.add("hidden");
   if (!cls) return;
   saveCurrent();
-  const name = current, f = files[name];
-  banner(`Sharing ${name} with ${cls}…`, 10000);
+  const name = current, f = files[name], [folder, base] = splitPath(name);
+  banner(`Sharing ${base} with ${cls}…`, 10000);
   try {
-    const r = await bridge.call("shareToClass", cls, name, f.code, f.bps || []);
+    const r = await bridge.call("shareToClass", cls, base, f.code, f.bps || [], folder);
     banner(`${r.replaced ? "Updated" : "Shared"} ${name} in ${cls}'s Class files.`, 5000);
   } catch (e) { banner("Could not share: " + e.message, 6000); }
 };

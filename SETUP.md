@@ -67,6 +67,14 @@ In the **Students** tab, add one row per student:
 - You can also browse everyone's work directly in the *PyStudio files* folder in Drive, organised as Class → Student.
 - Deleted files go to **your** Drive trash, so you can restore them for 30 days.
 
+## Folders
+- **Make a folder:** **+ Folder**. Click a folder to open or close it. Hover over it to rename ✎ or delete ✕.
+  Deleting a folder sends it, with its files, to your Drive trash.
+- **New files and uploads** go into the folder you're working in. Click **My files** to work outside any folder.
+- **Move a file:** use **Move**, or drag it onto a folder. Drag it onto **My files** to take it out of a folder.
+- **Class files** can have folders too. When a student edits one, their copy goes into a folder with the same name.
+- **In Drive,** folders are real subfolders, one level deep.
+
 ## Class files (starter code for a class)
 - **Add files:** in the **Classes** panel, pick a class and click **📁 Class files**. Add files there with
   **+ New** or **Upload**, or edit them like any other file.
