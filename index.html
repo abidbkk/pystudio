@@ -1860,7 +1860,7 @@ function saveOpen() { store.set(openKey(), [...openFolders]); }
 function renderFiles() {
   const byFolder = new Map(allFolders().map(f => [f, []])), root = [];
   for (const k of Object.keys(files)) { const [fo, n] = splitPath(k); (fo ? byFolder.get(fo) : root).push([k, n]); }
-  const byName = (a, b) => a[1].localeCompare(b[1]);
+  const byName = (a, b) => a[1].localeCompare(b[1], undefined, { numeric: true });
   const fileLi = ([k, n], inside) =>
     `<li class="file${inside ? " in" : ""}${k === current && !viewingClassFile ? " active" : ""}" data-name="${esc(k)}" draggable="true" title="Double-click to rename · drag onto a folder to move">${esc(n)}</li>`;
   let html = "";
@@ -1883,7 +1883,7 @@ function renderClassFiles() {
   const groups = [...new Set(classFiles.map(f => f.cls))], several = groups.length > 1;
   $("#classlist").innerHTML = groups.map(g => {
     let html = several ? `<li class="grp">${esc(g)}</li>` : "", last = null;
-    const list = classFiles.filter(f => f.cls === g).sort((a, b) => (a.folder || "").localeCompare(b.folder || "") || a.name.localeCompare(b.name));
+    const list = classFiles.filter(f => f.cls === g).sort((a, b) => (a.folder || "").localeCompare(b.folder || "") || a.name.localeCompare(b.name, undefined, { numeric: true }));
     for (const f of list) {
       if ((f.folder || "") !== last) { last = f.folder || ""; if (last) html += `<li class="grp">📁 ${esc(last)}</li>`; }
       html += `<li class="${viewingClassFile && viewingClassFile.id === f.id ? "active" : ""}${f.folder ? " in" : ""}" data-id="${esc(f.id)}" title="From your teacher. Start typing to make your own copy.">📄 ${esc(f.name)}</li>`;
