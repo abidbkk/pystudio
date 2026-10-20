@@ -914,25 +914,44 @@ initAccounts();
 // app in an iframe and passes calls to the server (which knows the signed-in Google user).
 const bridge = (() => {
   const SCRIPT_ORIGIN = /^https:\/\/[a-z0-9-]+-script\.googleusercontent\.com$/;
-  let origin = null, n = 0, onReady;
+  const ancestors = [...(location.ancestorOrigins || [])];
+  // Apps Script may run the door page in a sandbox whose origin is "null"; accept that
+  // only when the top of the frame chain is script.google.com.
+  const okOrigin = o => SCRIPT_ORIGIN.test(o) || (o === "null" && ancestors[ancestors.length - 1] === "https://script.google.com");
+  const embedded = window.parent !== window;
+  let origin = null, n = 0, onReady; const seen = new Set();
   const ready = new Promise(r => onReady = r), calls = new Map();
   addEventListener("message", e => {
     const m = e.data;
-    if (e.source !== window.parent || !SCRIPT_ORIGIN.test(e.origin) || !m || m.pystudio !== 1) return;
-    if (m.type === "hello") { origin = e.origin; onReady(); }
+    if (e.source !== window.parent || !m || m.pystudio !== 1) return;
+    if (!okOrigin(e.origin)) { seen.add(e.origin); return; }
+    if (m.type === "hello" && !origin) { origin = e.origin; onReady(); }
     else if (m.type === "reply" && calls.has(m.id)) {
       const p = calls.get(m.id); calls.delete(m.id);
       m.ok ? p.resolve(m.result) : p.reject(new Error(m.error || "Server error"));
     }
   });
-  if (window.parent !== window) window.parent.postMessage({ pystudio: 1, type: "hello" }, "*");
+  if (embedded) {
+    // Keep saying hello until the door page answers (it may not be listening yet).
+    let tries = 0;
+    const hello = () => {
+      if (origin) return;
+      window.parent.postMessage({ pystudio: 1, type: "hello" }, "*");
+      if (++tries < 30) setTimeout(hello, 500);
+      else {
+        $("#acct").classList.remove("hidden");
+        $("#who").textContent = `Sign-in not connected (frames: ${ancestors.join(" › ") || "?"}; replies from: ${[...seen].join(", ") || "none"})`;
+      }
+    };
+    hello();
+  }
   return {
     ready,
     call(fn, ...args) {
       return ready.then(() => new Promise((resolve, reject) => {
         const id = ++n;
         calls.set(id, { resolve, reject });
-        window.parent.postMessage({ pystudio: 1, type: "call", id, fn, args }, origin);
+        window.parent.postMessage({ pystudio: 1, type: "call", id, fn, args }, origin === "null" ? "*" : origin);
       }));
     },
   };
