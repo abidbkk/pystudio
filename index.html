@@ -45,7 +45,8 @@ header h1{font-size:16px;margin:0 12px 0 0;font-weight:650}
 #status{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px}
 #status::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--muted)}
 #status.ok::before{background:var(--ok)} #status.busy::before{background:#f59e0b} #status.err::before{background:var(--danger)}
-main{flex:1;min-height:0;display:grid;grid-template-columns:190px minmax(0,1fr) 360px;grid-template-rows:minmax(0,1fr) 210px;grid-template-areas:"files editor debug" "files io debug"}
+main{flex:1;min-height:0;display:grid;grid-template-columns:190px minmax(0,1fr);grid-template-rows:minmax(0,1fr) 210px;grid-template-areas:"files editor" "files io"}
+main.debugging{grid-template-columns:190px minmax(0,1fr) 360px;grid-template-areas:"files editor debug" "files io debug"}
 aside#files{grid-area:files;background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column;min-height:0}
 .ptitle{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);padding:10px 12px 6px;font-weight:600;display:flex;align-items:center;justify-content:space-between}
 #filelist{list-style:none;margin:0;padding:0 6px;overflow:auto;flex:1}
@@ -89,7 +90,8 @@ main.drawing #io{grid-template-columns:minmax(0,1fr) minmax(0,1.3fr)}
 #output .note{color:var(--muted);font-style:italic}
 #conin{border:0;border-bottom:2px solid var(--accent);border-radius:0;outline:none;background:transparent;font:inherit;color:var(--accent);padding:0 2px;width:min(60%,320px)}
 #output .wait{color:var(--muted);font-style:italic;font-size:12px}
-aside#debug{grid-area:debug;background:var(--panel);border-left:1px solid var(--border);display:flex;flex-direction:column;min-height:0}
+aside#debug{grid-area:debug;background:var(--panel);border-left:1px solid var(--border);display:none;flex-direction:column;min-height:0}
+main.debugging aside#debug{display:flex}
 #dbgbar{display:flex;flex-wrap:wrap;gap:4px;padding:0 10px 8px}
 #dbgbar button{padding:4px 7px;font-size:12px}
 #stepinfo{margin:0 10px 6px;padding:6px 8px;border-radius:6px;background:var(--btn);font-size:12.5px;min-height:20px}
@@ -107,13 +109,12 @@ tr.chg td{background:var(--changed)}
 #watchform{display:flex;gap:6px;padding:0 10px 6px}
 #watchform input{flex:1;min-width:0;font-family:var(--mono);font-size:12.5px}
 #watches .x{cursor:pointer;color:var(--muted);text-align:right;width:20px}
-#idle{padding:4px 12px;color:var(--muted);font-size:13px}
-#idle kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--border);border-radius:4px;padding:0 4px;background:var(--btn)}
-#idle li{margin-bottom:4px}
+#keys{margin:0 10px 8px;color:var(--muted);font-size:11.5px}
+#keys kbd{font-family:var(--mono);font-size:10.5px;border:1px solid var(--border);border-radius:4px;padding:0 3px;background:var(--btn)}
 .hidden{display:none!important}
 @media (max-width:980px){
   body{overflow:auto}
-  main{grid-template-columns:1fr;grid-template-rows:auto 55vh auto auto;grid-template-areas:"files" "editor" "io" "debug"}
+  main,main.debugging{grid-template-columns:1fr;grid-template-rows:auto 55vh auto auto;grid-template-areas:"files" "editor" "io" "debug"}
   aside#files{border-right:0;border-bottom:1px solid var(--border)}
   #filelist{display:flex;flex-wrap:wrap;gap:4px;max-height:90px}
   .filebtns{grid-template-columns:repeat(5,auto);justify-content:start}
@@ -133,7 +134,7 @@ tr.chg td{background:var(--changed)}
   <span id="savestate"></span>
   <span id="acct" class="hidden"><span id="who"></span></span>
   <button id="btnRun" class="primary" title="Run (Ctrl+Enter)" disabled>▶ Run</button>
-  <button id="btnDebug" title="Debug (F5)" disabled>🐞 Debug</button>
+  <button id="btnDebug" title="Debug (F5). Tip: click left of a line number to add a breakpoint where the program should pause." disabled>🐞 Debug</button>
   <button id="btnStop" class="danger" title="Stop the program" disabled>■ Stop</button>
   <span id="status" class="busy">Loading Python…</span>
 </header>
@@ -175,16 +176,7 @@ tr.chg td{background:var(--changed)}
 
   <aside id="debug">
     <div class="ptitle">Debugger</div>
-    <div id="idle">
-      <ul style="padding-left:18px;margin:0">
-        <li>Click left of a line number to set a <b style="color:var(--bp)">●</b> breakpoint.</li>
-        <li>Press <b>🐞 Debug</b> <kbd>F5</kbd> — the program pauses at the first breakpoint.</li>
-        <li>Step with the buttons, or <kbd>F10</kbd> over, <kbd>F11</kbd> into, <kbd>Shift+F11</kbd> out, <kbd>F9</kbd> back.</li>
-        <li>You can step <b>backwards</b> and drag the timeline.</li>
-        <li>Changed variables are <span style="background:var(--changed);padding:0 3px">highlighted</span>.</li>
-      </ul>
-    </div>
-    <div id="dbgpanel" class="hidden">
+    <div id="dbgpanel">
       <div id="dbgbar">
         <button data-act="start" title="Go to first step">⏮</button>
         <button data-act="rcont" title="Back to previous breakpoint">◀◀</button>
@@ -198,12 +190,13 @@ tr.chg td{background:var(--changed)}
       </div>
       <div id="stepinfo"></div>
       <input type="range" id="timeline" min="0" value="0">
+      <div id="keys">Keys: <kbd>F10</kbd> over · <kbd>F11</kbd> into · <kbd>Shift+F11</kbd> out · <kbd>F9</kbd> back · <kbd>F5</kbd> next breakpoint. Changed variables are <span style="background:var(--changed);padding:0 3px">highlighted</span>.</div>
     </div>
     <div id="dbgscroll">
       <div class="ptitle">Watch</div>
       <form id="watchform"><input id="watchin" placeholder="expression, e.g. total / 2" spellcheck="false"><button>Add</button></form>
       <div class="frame" style="border-style:dashed"><table id="watches"></table></div>
-      <div id="varsec" class="hidden">
+      <div id="varsec">
         <div class="ptitle">Variables &amp; call stack</div>
         <div id="vars"></div>
       </div>
@@ -1164,7 +1157,7 @@ async function startDebug(keepIdx, answers = []) {
   if (!r.steps.length) { endDebug(); showOutput(r.output, r.error); if (r.errorLine) markLine(r.errorLine, "cm-exc"); return; }
   dbg = { ...r, seed, answers, watchCount: watches.length };
   drawing.load(r.turtle);
-  $("#idle").classList.add("hidden"); $("#dbgpanel").classList.remove("hidden"); $("#varsec").classList.remove("hidden");
+  if (!$("main").classList.contains("debugging")) { $("main").classList.add("debugging"); cm.refresh(); }
   const tl = $("#timeline"); tl.max = r.steps.length - 1;
   if (keepIdx != null) idx = Math.min(keepIdx, r.steps.length - 1);
   else {
@@ -1178,7 +1171,7 @@ function endDebug() {
   if (waiting) cancelWait();
   if (!dbg) return;
   dbg = null; clearMarks();
-  $("#idle").classList.remove("hidden"); $("#dbgpanel").classList.add("hidden"); $("#varsec").classList.add("hidden");
+  $("main").classList.remove("debugging"); cm.refresh();
   renderWatches();
 }
 function findNext(from, pred) { for (let j = from + 1; j < dbg.steps.length; j++) if (pred(dbg.steps[j])) return j; return null; }
