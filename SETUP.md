@@ -67,6 +67,16 @@ In the **Students** tab, add one row per student:
 - You can also browse everyone's work directly in the *PyStudio files* folder in Drive, organised as Class → Student.
 - Deleted files go to **your** Drive trash, so you can restore them for 30 days.
 
+## Pseudocode
+**📝 Pseudocode** shows the current file as Cambridge IGCSE (0984) pseudocode next to the Python. It's view only.
+- It updates as you type. Click a pseudocode line to highlight the Python line it came from. Moving the cursor in the Python highlights the matching pseudocode lines.
+- It follows the syllabus style: `←`, `IF … THEN … ELSE … ENDIF`, `CASE OF`, `FOR … TO … STEP … NEXT`, `WHILE … DO … ENDWHILE`,
+  `REPEAT … UNTIL`, `PROCEDURE`/`FUNCTION … RETURNS`, `INPUT`/`OUTPUT`, `MOD`/`DIV`, `LENGTH`/`SUBSTRING`/`UCASE`/`LCASE`,
+  `ROUND`/`RANDOM` and file handling.
+- Arrays keep Python's 0-based indexes, written as `ARRAY[0:n]`. `DECLARE` lines are added automatically, and names are written in PascalCase.
+- Python with no Cambridge equivalent (for example lists that grow, list comprehensions or turtle) is marked with a `// Note` line, or with `< >` around the Python.
+- **Copy** and **Print** are at the top of the panel.
+
 ## Folders
 - **Make a folder:** **+ Folder**. Click a folder to open or close it. Hover over it to rename ✎ or delete ✕.
   Deleting a folder sends it, with its files, to your Drive trash.
