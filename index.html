@@ -53,6 +53,14 @@ aside#files{grid-area:files;background:var(--panel);border-right:1px solid var(-
 #filelist li{padding:5px 8px;border-radius:5px;cursor:pointer;font-family:var(--mono);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #filelist li:hover{background:var(--btn)}
 #filelist li.active{background:var(--accent);color:var(--accent-text)}
+#classsec{border-top:1px solid var(--border);max-height:35%;display:flex;flex-direction:column;min-height:0}
+#classlist{list-style:none;margin:0;padding:0 6px 6px;overflow:auto}
+#classlist li{padding:5px 8px;border-radius:5px;cursor:pointer;font-family:var(--mono);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#classlist li:hover{background:var(--btn)}
+#classlist li.active{background:var(--cur)}
+#classlist li.grp{cursor:default;font-family:inherit;font-size:11px;color:var(--muted);padding:4px 8px 2px}
+#classlist li.grp:hover{background:none}
+#shareSel{font:inherit;font-size:12px;color:var(--text);background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:4px}
 #viewing{margin:8px 8px 0;padding:8px;border-radius:6px;background:var(--cur);font-size:12px;display:flex;gap:6px;align-items:center;justify-content:space-between}
 #viewing span{color:var(--muted)}
 #viewing button{font-size:11px;padding:3px 7px}
@@ -141,17 +149,23 @@ tr.chg td{background:var(--changed)}
 <main>
   <aside id="files">
     <div id="viewing" class="hidden">
-      <div>Viewing <b id="viewName"></b><br><span>Changes save to their file</span></div>
+      <div>Viewing <b id="viewName"></b><br><span id="viewNote">Changes save to their file</span></div>
       <button id="btnMine">← My files</button>
     </div>
     <div class="ptitle" id="filesTitle">My files</div>
     <ul id="filelist"></ul>
+    <div id="classsec" class="hidden">
+      <div class="ptitle">Class files</div>
+      <ul id="classlist"></ul>
+    </div>
     <div class="filebtns">
       <button id="fNew">+ New</button>
       <button id="fRename">Rename</button>
       <button id="fUpload">Upload</button>
       <button id="fDownload">Download</button>
       <button id="fDelete" class="danger" style="grid-column:span 2">Delete</button>
+      <button id="fShare" class="hidden" style="grid-column:span 2" title="Copy this file into a class's shared Class files">📤 Share to class</button>
+      <select id="shareSel" class="hidden" style="grid-column:span 2"></select>
     </div>
     <input type="file" id="upload" accept=".py,.txt" multiple class="hidden">
     <div id="teach" class="hidden">
@@ -755,6 +769,7 @@ function getBps() {
 let saveT;
 cm.on("change", () => {
   if (loading) return;
+  if (viewingClassFile) forkClassFile();
   if (dbg) { endDebug(); banner("Code changed — debug session ended"); }
   else if (waiting) { cancelWait(); $("#conin")?.remove(); $("#output .wait")?.remove(); }
   clearMarks();
@@ -762,12 +777,14 @@ cm.on("change", () => {
 });
 
 function saveCurrent() {
+  if (viewingClassFile) { viewingClassFile.bps = getBps(); return; }
   if (!files || !files[current]) return;
   files[current] = { ...files[current], code: cm.getValue(), bps: getBps() };
   persist();
   store.set(curKey(), current);
 }
 function loadFile(name) {
+  viewingClassFile = null;
   current = name;
   loading = true;
   cm.setValue(files[name].code);
@@ -784,14 +801,73 @@ let renaming = false;
 function renderFiles() {
   const ul = $("#filelist");
   ul.innerHTML = Object.keys(files).sort().map(n =>
-    `<li class="${n === current ? "active" : ""}" data-name="${esc(n)}" title="Double-click to rename">${esc(n)}</li>`).join("");
+    `<li class="${n === current && !viewingClassFile ? "active" : ""}" data-name="${esc(n)}" title="Double-click to rename">${esc(n)}</li>`).join("");
+  renderClassFiles();
 }
+
+// ---------- class files: shared by the teacher, read-only until the student edits ----------
+let classFiles = [], viewingClassFile = null;
+function renderClassFiles() {
+  $("#classsec").classList.toggle("hidden", !classFiles.length);
+  const groups = [...new Set(classFiles.map(f => f.cls))], several = groups.length > 1;
+  $("#classlist").innerHTML = groups.map(g =>
+    (several ? `<li class="grp">${esc(g)}</li>` : "") +
+    classFiles.filter(f => f.cls === g).sort((a, b) => a.name.localeCompare(b.name)).map(f =>
+      `<li class="${viewingClassFile && viewingClassFile.id === f.id ? "active" : ""}" data-id="${esc(f.id)}" title="From your teacher. Start typing to make your own copy.">📄 ${esc(f.name)}</li>`
+    ).join("")).join("");
+}
+function openClassFile(f) {
+  saveCurrent(); endDebug(); clearMarks();
+  viewingClassFile = f;
+  loading = true;
+  cm.setValue(f.code); cm.clearHistory();
+  for (const l of f.bps || []) if (l - 1 < cm.lineCount()) cm.setGutterMarker(l - 1, "bp-gutter", bpMarker());
+  loading = false;
+  $("#fname").textContent = f.name + " (class file)";
+  renderFiles();
+  banner("This file is from your teacher. Run or debug it — or start typing to make your own copy.", 5000);
+}
+// The first edit to a class file turns it into the student's own file.
+function forkClassFile() {
+  const f = viewingClassFile;
+  viewingClassFile = null;
+  const n = uniqueName(f.name);
+  files[n] = { code: cm.getValue(), bps: getBps() };
+  current = n;
+  $("#fname").textContent = n;
+  store.set(curKey(), n);
+  renderFiles(); persist();
+  banner(`Saved as your own copy: ${n}`, 4000);
+}
+function mergeClassFiles(groups) {
+  if (!groups) return;
+  const old = new Map(classFiles.map(f => [f.id, f]));
+  classFiles = groups.flatMap(g => g.files.map(x => {
+    const o = old.get(x.id);
+    return { cls: g.cls, id: x.id, name: x.name, v: x.v, code: x.content ?? o?.code ?? "", bps: x.bps ?? o?.bps ?? [] };
+  }));
+  if (viewingClassFile) {
+    const now = classFiles.find(f => f.id === viewingClassFile.id);
+    if (now && now.v !== viewingClassFile.v && !dbg) {
+      viewingClassFile = now;
+      const cur = cm.getCursor(); loading = true; cm.setValue(now.code); cm.setCursor(cur); loading = false;
+      banner(`Your teacher updated ${now.name}`, 5000);
+    } else if (now) viewingClassFile = now;
+  }
+  renderClassFiles();
+}
+$("#classlist").addEventListener("click", e => {
+  const li = e.target.closest("li[data-id]");
+  if (!li || (viewingClassFile && viewingClassFile.id === li.dataset.id)) return;
+  const f = classFiles.find(f => f.id === li.dataset.id);
+  if (f) openClassFile(f);
+});
 $("#filelist").addEventListener("click", e => {
   const li = e.target.closest("li"); if (!li || renaming) return;
-  const n = li.dataset.name; if (n === current) return;
+  const n = li.dataset.name; if (n === current && !viewingClassFile) return;
   saveCurrent(); endDebug(); clearMarks(); loadFile(n);
 });
-$("#filelist").addEventListener("dblclick", e => { if (e.target.closest("li")) startRename(); });
+$("#filelist").addEventListener("dblclick", e => { if (e.target.closest("li") && !viewingClassFile) startRename(); });
 function uniqueName(base, within = files) {
   base = base.replace(/[\\/:*?"<>|]/g, "").trim() || "untitled.py";
   if (!/\.py$/i.test(base)) base += ".py";
@@ -829,9 +905,10 @@ function startRename() {
   inp.onkeydown = e => { if (e.key === "Enter") finish(true); if (e.key === "Escape") finish(false); };
   inp.onblur = () => finish(true);
 }
-$("#fRename").onclick = startRename;
+$("#fRename").onclick = () => viewingClassFile ? banner("Class files can't be renamed — start typing to make your own copy first.", 4000) : startRename();
 let delArmed = null;
 $("#fDelete").onclick = () => {
+  if (viewingClassFile) return banner("Class files come from your teacher and can't be deleted.", 4000);
   const b = $("#fDelete");
   if (!delArmed) { b.textContent = `Really delete ${current}?`; delArmed = setTimeout(() => { delArmed = null; b.textContent = "Delete"; }, 3000); return; }
   clearTimeout(delArmed); delArmed = null; b.textContent = "Delete";
@@ -843,8 +920,8 @@ $("#fDelete").onclick = () => {
 $("#fDownload").onclick = () => {
   saveCurrent();
   const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([files[current].code], { type: "text/x-python" }));
-  a.download = current; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  a.href = URL.createObjectURL(new Blob([cm.getValue()], { type: "text/x-python" }));
+  a.download = viewingClassFile ? viewingClassFile.name : current; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 };
 $("#fUpload").onclick = () => $("#upload").click();
 $("#upload").onchange = async e => {
@@ -1411,10 +1488,12 @@ function schedulePoll() {
 async function poll() {
   if (mode !== "cloud") return;
   if (inflight || flushT || document.hidden || renaming) return schedulePoll();
-  const ctx = ctxN, known = {};
+  const ctx = ctxN, known = {}, classKnown = {};
   for (const f of Object.values(files)) if (f.id) known[f.id] = f.v;
+  for (const f of classFiles) classKnown[f.id] = f.v;
   try {
-    const r = await bridge.call("listFiles", view.target, known);
+    const r = await bridge.call("listFiles", view.target, known, classKnown);
+    if (ctx === ctxN) mergeClassFiles(r.classes);
     if (ctx === ctxN && !inflight && !flushT) mergeRemote(r.files);
   } catch (e) { console.warn("Refresh failed", e); }
   if (ctx === ctxN) schedulePoll();
@@ -1488,7 +1567,7 @@ async function openView(target, label, isMe) {
   if (mode === "cloud" && !(await saveNow())) { banner("Could not save your changes — check your connection and try again.", 6000); return; }
   const ctx = ++ctxN;
   clearTimeout(pollT);
-  setSaveState("opening", isMe ? "Opening your files…" : `Opening ${firstName(label)}'s files…`);
+  setSaveState("opening", isMe ? "Opening your files…" : target.startsWith("class:") ? `Opening ${label}…` : `Opening ${firstName(label)}'s files…`);
   let r;
   try { r = await bridge.call("listFiles", target, {}); }
   catch (e) {
@@ -1503,7 +1582,9 @@ async function openView(target, label, isMe) {
     s.set(x.id, sigOf(n, f[n]));
   }
   synced = s;
-  view = { target, label, isMe };
+  view = { target, label, isMe, isClass: target.startsWith("class:") };
+  classFiles = []; viewingClassFile = null;
+  mergeClassFiles(r.classes);
   if (!r.files.length) Object.assign(f, isMe ? sampleFiles() : { "untitled.py": { code: "", bps: [], placeholder: true } });
   switchFiles("cloud", f);
   if (!r.files.length && isMe) persist();
@@ -1512,8 +1593,13 @@ async function openView(target, label, isMe) {
 function renderView() {
   const other = mode === "cloud" && view && !view.isMe;
   $("#viewing").classList.toggle("hidden", !other);
-  if (other) $("#viewName").textContent = view.label;
-  $("#filesTitle").textContent = other ? `${firstName(view.label)}'s files` : "My files";
+  if (other) {
+    $("#viewName").textContent = view.label;
+    $("#viewNote").textContent = view.isClass ? "Students in this class can open these" : "Changes save to their file";
+  }
+  $("#filesTitle").textContent = !other ? "My files" : view.isClass ? view.label : `${firstName(view.label)}'s files`;
+  $("#fShare").classList.toggle("hidden", !(me && me.role === "teacher" && mode === "cloud" && view && view.isMe));
+  $("#shareSel").classList.add("hidden");
   renderStudents();
 }
 function showAcct(text) { $("#acct").classList.remove("hidden"); $("#who").textContent = text; }
@@ -1539,18 +1625,43 @@ function ago(t) {
 }
 function renderStudents() {
   const c = classes.find(c => c.name === $("#clsSel").value);
-  $("#stuList").innerHTML = (c ? c.students : []).map(s =>
+  const cf = c ? `<li data-classfiles="${esc(c.name)}" class="${view && view.target === "class:" + c.name ? "active" : ""}" title="Starter files every student in ${esc(c.name)} can open">📁 Class files<small>shared</small></li>` : "";
+  $("#stuList").innerHTML = cf + (c ? c.students : []).map(s =>
     `<li data-email="${esc(s.email)}" class="${view && view.target === s.email ? "active" : ""}" title="${esc(s.email)}">${esc(s.name)}<small>${ago(s.last)}</small></li>`
   ).join("") || `<li style="cursor:default"><small>No students in this class</small></li>`;
 }
 $("#clsSel").onchange = () => { store.set("pystudio.class", $("#clsSel").value); renderStudents(); };
 $("#stuList").onclick = e => {
+  const cfi = e.target.closest("li[data-classfiles]");
+  if (cfi) {
+    const t = "class:" + cfi.dataset.classfiles;
+    if (!view || view.target !== t) openView(t, `${cfi.dataset.classfiles} class files`, false);
+    return;
+  }
   const li = e.target.closest("li[data-email]");
   if (!li || (view && view.target === li.dataset.email)) return;
   const s = classes.flatMap(c => c.students).find(s => s.email === li.dataset.email);
   if (s) openView(s.email, s.name, false);
 };
 $("#btnMine").onclick = () => openView(me.email, me.name, true);
+$("#fShare").onclick = () => {
+  const sel = $("#shareSel");
+  if (!classes.length) return banner("No classes yet — add students to the class list first.", 4000);
+  sel.innerHTML = `<option value="">Share ${esc(current)} with…</option>` + classes.map(c => `<option>${esc(c.name)}</option>`).join("");
+  sel.classList.remove("hidden"); sel.focus();
+};
+$("#shareSel").onchange = async () => {
+  const sel = $("#shareSel"), cls = sel.value;
+  sel.classList.add("hidden");
+  if (!cls) return;
+  saveCurrent();
+  const name = current, f = files[name];
+  banner(`Sharing ${name} with ${cls}…`, 10000);
+  try {
+    const r = await bridge.call("shareToClass", cls, name, f.code, f.bps || []);
+    banner(`${r.replaced ? "Updated" : "Shared"} ${name} in ${cls}'s Class files.`, 5000);
+  } catch (e) { banner("Could not share: " + e.message, 6000); }
+};
 $("#btnClsRefresh").onclick = loadClasses;
 
 // ---------- start-up: who is signed in? ----------

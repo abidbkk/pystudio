@@ -213,16 +213,43 @@ function me_() {
   return { email, role: 'none', name: email };
 }
 
-/** Whose files may `me` open? Their own; teachers may open anyone on the lists. */
+/**
+ * Whose files may `me` open? Their own; teachers may open anyone on the lists, and a class's
+ * shared "Class files" (target "class:<name>"). Students read class files through listFiles().
+ */
 function target_(me, target) {
-  target = String(target || me.email).toLowerCase();
   if (me.role === 'none') throw new Error('Your account is not on a class list yet. Ask your teacher to add you.');
+  const cls = classOf_(target);
+  if (cls) {
+    if (me.role !== 'teacher') throw new Error('Only teachers can change class files.');
+    if (!classExists_(cls)) throw new Error('There is no class called ' + cls + '.');
+    return 'class:' + cls;
+  }
+  target = String(target || me.email).toLowerCase();
   if (target === me.email) return target;
   const r = roster_();
   if (me.role === 'teacher' && (r.students[target] || r.teachers[target])) return target;
   throw new Error('You do not have access to those files.');
 }
 
+function classOf_(target) {
+  const m = /^class:(.+)$/.exec(String(target || ''));
+  return m ? m[1] : null;
+}
+
+function classExists_(cls) {
+  const r = roster_();
+  return Object.keys(r.students).some(e => r.students[e].classes.includes(cls));
+}
+
+/** A class's shared files folder, or null if the teacher hasn't added any yet. */
+function classFolder_(cls) {
+  const id = PROPS.getProperty('f:class:' + cls);
+  if (!id) return null;
+  try { const f = DriveApp.getFolderById(id); return f.isTrashed() ? null : f; } catch (e) { return null; }
+}
+
+/** `email` is a person's email, or "class:<name>" for a class's shared files. */
 function folderFor_(email) {
   const key = 'f:' + email;
   const id = PROPS.getProperty(key);
@@ -232,10 +259,14 @@ function folderFor_(email) {
   try {
     const again = PROPS.getProperty(key);
     if (again && again !== id) return DriveApp.getFolderById(again);
-    const r = roster_();
-    const s = r.students[email];
-    const parent = childFolder_(rootFolder_(), s ? s.classes[0] : 'Teachers');
-    const folder = parent.createFolder(s ? `${s.name} (${email})` : email);
+    const cls = classOf_(email);
+    let folder;
+    if (cls) {
+      folder = childFolder_(rootFolder_(), cls).createFolder('_Class files (students can see these)');
+    } else {
+      const s = roster_().students[email];
+      folder = childFolder_(rootFolder_(), s ? s.classes[0] : 'Teachers').createFolder(s ? `${s.name} (${email})` : email);
+    }
     PROPS.setProperty(key, folder.getId());
     return folder;
   } finally {
@@ -290,13 +321,24 @@ function whoAmI() {
 /**
  * Lists the files of `target` (default: yourself). `known` maps file id -> version the page
  * already has; content is only sent for files that are new or changed.
+ * A student listing their own files also gets their classes' shared files (`classKnown` works like `known`).
  */
-function listFiles(target, known) {
+function listFiles(target, known, classKnown) {
   const me = me_();
   const email = target_(me, target);
-  known = known || {};
+  const res = { files: filesIn_(folderFor_(email), known || {}) };
+  if (email === me.email && me.role === 'student') {
+    res.classes = roster_().students[me.email].classes.map(cls => {
+      const folder = classFolder_(cls);
+      return { cls, files: folder ? filesIn_(folder, classKnown || {}) : [] };
+    });
+  }
+  return res;
+}
+
+function filesIn_(folder, known) {
   const out = [];
-  const it = folderFor_(email).getFiles();
+  const it = folder.getFiles();
   while (it.hasNext()) {
     const f = it.next();
     if (f.isTrashed()) continue;
@@ -305,7 +347,25 @@ function listFiles(target, known) {
     if (known[e.id] !== m.v) { e.content = f.getBlob().getDataAsString('UTF-8'); e.bps = m.bps; }
     out.push(e);
   }
-  return { files: out };
+  return out;
+}
+
+/** Teachers only: copies a file into a class's shared files, replacing one with the same name. */
+function shareToClass(cls, name, content, bps) {
+  const me = me_();
+  const folder = folderFor_(target_(me, 'class:' + cls));
+  name = cleanName_(name);
+  content = String(content == null ? '' : content);
+  if (content.length > MAX_FILE_CHARS) throw new Error(`${name} is too large to share.`);
+  bps = Array.isArray(bps) ? bps.filter(n => typeof n === 'number').slice(0, 500) : [];
+  let f = null;
+  const it = folder.getFilesByName(name);
+  while (it.hasNext()) { const x = it.next(); if (!x.isTrashed()) { f = x; break; } }
+  let v = 1;
+  if (f) { v = meta_(f).v + 1; f.setContent(content); }
+  else f = folder.createFile(name, content, MimeType.PLAIN_TEXT);
+  f.setDescription(JSON.stringify({ bps, v, by: me.email }));
+  return { id: f.getId(), v, replaced: v > 1 };
 }
 
 /**

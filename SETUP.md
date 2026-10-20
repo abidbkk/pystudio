@@ -67,6 +67,16 @@ In the **Students** tab, add one row per student:
 - You can also browse everyone's work directly in the *PyStudio files* folder in Drive, organised as Class → Student.
 - Deleted files go to **your** Drive trash, so you can restore them for 30 days.
 
+## Class files (starter code for a class)
+- **Add files:** in the **Classes** panel, pick a class and click **📁 Class files**. Add files there with
+  **+ New** or **Upload**, or edit them like any other file.
+- **Share an existing file:** open one of **My files** and click **📤 Share to class**, then choose the class.
+  This copies the file into that class's Class files. If a file with the same name is already there, it's updated.
+- **What students see:** a **Class files** section below their own files. They can open, run and debug them.
+  As soon as they type, the file becomes **their own copy** in My files. Your original is never changed.
+- **Updating:** when you edit a class file, students see the new version within about 20 seconds. New students in the class get the files too.
+- **In Drive:** the files are stored in *PyStudio files › (class) › _Class files (students can see these)*.
+
 ## Good to know
 - **Shared computers:** PyStudio uses whichever Google account the browser is signed in to.
   Students should sign out of Google at the end of the lesson.
