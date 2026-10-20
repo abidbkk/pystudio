@@ -1,56 +1,62 @@
-# Turning on student sign-in (Firebase)
+# Setting up classes and online saving (Google Apps Script)
 
-This is a one-time setup and takes about 10 minutes. Firebase's free "Spark" plan is
-enough for a school: 1 GB of storage, 20,000 saves and 50,000 file loads per day.
+PyStudio runs on GitHub Pages. A small Apps Script project in **your** school Google account adds:
 
-Do it while signed in to the Google account that should own the project. Using your
-school account keeps it under the school's control.
+- **Sign-in:** students are recognised by their school Google account. There are no passwords or codes.
+- **Saving:** each person's files go into a folder in **your** Google Drive.
+- **Class lists:** you edit a Google Sheet listing classes, students and teachers.
 
-## 1. Create the project
-1. Go to https://console.firebase.google.com and click **Create a project**.
-2. Name it, for example `pystudio`. You can turn Google Analytics **off**.
+Students use the Apps Script link (it ends in `/exec`). The plain GitHub link still works, but
+files are then saved only in that browser.
 
-## 2. Turn on Google sign-in
-1. In the left menu: **Build → Authentication → Get started**.
-2. On the **Sign-in method** tab, choose **Google**, switch it **on**, pick a support email and click **Save**.
-3. On the **Settings** tab, open **Authorized domains** and click **Add domain**: `abidbkk.github.io`
-   (`localhost` is already allowed, for testing).
+## 1. Put the code in your Apps Script project
+1. Open your **PyStudio** project at https://script.google.com.
+2. In **`Code.gs`**, replace everything with the contents of [`apps-script/Code.gs`](apps-script/Code.gs).
+3. In **`index.html`**, replace everything with the contents of [`apps-script/index.html`](apps-script/index.html).
+4. Press **Ctrl+S**.
 
-## 3. Create the database
-1. **Build → Firestore Database → Create database**.
-2. Choose a location close to you, for example `europe-west` / `eur3`. You can't change it later.
-3. Choose **Start in production mode**.
-4. Open the **Rules** tab, replace everything with the contents of
-   [`firestore.rules`](firestore.rules), and click **Publish**.
+## 2. Run the one-time setup
+1. In the toolbar's function menu (next to **Debug**), pick **`setup`**, then click **Run**.
+2. Google asks for permission to use Drive and Sheets. Click **Review permissions** and choose your account.
+   If you see "Google hasn't verified this app", click **Advanced → Go to PyStudio**. It's your own script.
+3. The **Execution log** at the bottom shows two links:
+   - **Class list**: the spreadsheet *PyStudio – Classes*
+   - **Student files folder**: *PyStudio files* in your Drive
 
-## 4. Connect PyStudio to the project
-1. Go to **Project settings** (the gear icon) → **General**. Under **Your apps**, click the **web** icon `</>`.
-2. Give it a nickname (`pystudio`), leave Hosting unticked, and click **Register app**.
-3. Copy the `firebaseConfig = { ... }` values into [`firebase-config.js`](firebase-config.js):
+   Both are in your Drive, so you can find them again there.
 
-```js
-window.PYSTUDIO_CONFIG = {
-  firebase: {
-    apiKey: "…",
-    authDomain: "your-project.firebaseapp.com",
-    projectId: "your-project",
-    storageBucket: "your-project.appspot.com",
-    messagingSenderId: "…",
-    appId: "…",
-  },
-  allowedDomains: ["ics.edu.jo"],
-};
-```
+## 3. Fill in the class list
+In the **Students** tab, add one row per student:
 
-4. Commit and push. The site updates within a couple of minutes.
+| Class | Student name | Email | Last active (automatic) |
+|---|---|---|---|
+| 9A | Sara Ahmad | sara.ahmad@ics.edu.jo | |
 
-## Notes
-- **Which accounts can sign in:** accounts at `ics.edu.jo` or any subdomain, such as
-  `students.ics.edu.jo`. To use a different domain, change it in **both** `firebase-config.js`
-  and `firestore.rules`, then publish the rules again.
-- **Where files are stored:** Firestore at `users/{uid}/files/{fileId}`. Each student can read and write only their own files.
-  Under `users/{uid}`, the app also saves the student's email, name and last time they signed in.
-- **Shared computers:** files aren't kept in the browser after a student signs out.
-  Students should click **Sign out** when they finish.
-- **Use without signing in:** still available. Those files are saved only in that browser.
-- If your Google Workspace admin restricts third-party apps, they may need to allow the Firebase project.
+- Delete the example row.
+- To add other teachers, put their emails in the **Teachers** tab. You're always a teacher.
+- Changes reach PyStudio within about a minute.
+
+## 4. Publish the new version
+1. Click **Deploy → Manage deployments**, then the pencil ✏️.
+2. Set **Version** to **New version** and click **Deploy**.
+   The `/exec` link stays the same.
+3. Give that link to your students. A short link or QR code makes it easier to share.
+
+## How it works for you
+- You open the same link. You get **My files**, plus a **Classes** panel at the bottom left.
+- Pick a class, then click a student to open their files. You can run and debug them.
+  While you watch, their changes appear every few seconds.
+- You can also edit their files. Your edits save into the student's file, and they see them within about 20 seconds.
+  If you both change the same file at the same moment, nothing is lost: the second person's version is saved as `name-mine.py`.
+- You can also browse everyone's work directly in the *PyStudio files* folder in Drive, organised as Class → Student.
+- Deleted files go to **your** Drive trash, so you can restore them for 30 days.
+
+## Good to know
+- **Shared computers:** PyStudio uses whichever Google account the browser is signed in to.
+  Students should sign out of Google at the end of the lesson.
+- **Not on the list:** if a student isn't in the sheet yet, PyStudio tells them so and saves
+  only on that computer until you add them.
+- **Quotas:** Apps Script's free limits are well above what one class needs. Saves happen at most every
+  few seconds while someone types.
+- **Updating PyStudio:** changes to the editor are published on GitHub and appear straight away.
+  You only redo steps 1 and 4 when `apps-script/Code.gs` or `apps-script/index.html` changes.

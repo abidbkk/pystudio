@@ -42,14 +42,6 @@ header h1{font-size:16px;margin:0 12px 0 0;font-weight:650}
 #savestate{font-size:12px;color:var(--muted);margin-right:auto}
 #savestate.ok{color:var(--ok)} #savestate.warn{color:#d97706}
 #acct{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);padding-right:6px;margin-right:4px;border-right:1px solid var(--border)}
-#acct button{font-size:12px;padding:3px 8px}
-#login{position:fixed;inset:0;z-index:50;background:rgba(10,14,22,.55);display:flex;align-items:center;justify-content:center;padding:16px}
-#login .card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:28px;max-width:400px;width:100%;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,.25)}
-#login h2{margin:0 0 8px;font-size:22px}
-#login p{color:var(--muted);margin:0 0 18px}
-#login button{display:block;width:100%;margin:0 0 10px;padding:9px}
-#login .small{font-size:12px;margin:4px 0 0}
-#loginMsg{min-height:18px;color:var(--text)!important;font-size:13px}
 #status{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px}
 #status::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--muted)}
 #status.ok::before{background:var(--ok)} #status.busy::before{background:#f59e0b} #status.err::before{background:var(--danger)}
@@ -60,6 +52,17 @@ aside#files{grid-area:files;background:var(--panel);border-right:1px solid var(-
 #filelist li{padding:5px 8px;border-radius:5px;cursor:pointer;font-family:var(--mono);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #filelist li:hover{background:var(--btn)}
 #filelist li.active{background:var(--accent);color:var(--accent-text)}
+#viewing{margin:8px 8px 0;padding:8px;border-radius:6px;background:var(--cur);font-size:12px;display:flex;gap:6px;align-items:center;justify-content:space-between}
+#viewing span{color:var(--muted)}
+#viewing button{font-size:11px;padding:3px 7px}
+#teach{border-top:1px solid var(--border);display:flex;flex-direction:column;min-height:0;max-height:48%}
+#clsSel{margin:0 8px 6px;font:inherit;font-size:13px;color:var(--text);background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:4px}
+#stuList{list-style:none;margin:0;padding:0 6px 8px;overflow:auto}
+#stuList li{padding:5px 8px;border-radius:5px;cursor:pointer;font-size:13px;display:flex;justify-content:space-between;gap:6px}
+#stuList li:hover{background:var(--btn)}
+#stuList li.active{background:var(--accent);color:var(--accent-text)}
+#stuList li small{color:var(--muted);font-size:11px;white-space:nowrap}
+#stuList li.active small{color:inherit;opacity:.8}
 #filelist input{width:100%;font-family:var(--mono);font-size:13px;padding:3px 5px}
 .filebtns{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:8px}
 .filebtns button{font-size:12px;padding:4px 6px}
@@ -70,7 +73,7 @@ aside#files{grid-area:files;background:var(--panel);border-right:1px solid var(-
 .bp-dot{width:11px;height:11px;border-radius:50%;background:var(--bp);margin:3px 0 0 4px}
 .CodeMirror-gutter-wrapper{cursor:pointer}
 .cm-cur{background:var(--cur)} .cm-ret{background:var(--ret)} .cm-exc{background:var(--exc)}
-#banner{position:absolute;top:8px;right:12px;z-index:5;background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:4px 10px;font-size:12px;color:var(--muted);display:none}
+#banner{position:absolute;top:8px;right:12px;max-width:min(520px,80%);z-index:5;background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:4px 10px;font-size:12px;color:var(--muted);display:none}
 #io{grid-area:io;display:grid;grid-template-columns:minmax(0,1fr);border-top:1px solid var(--border);background:var(--panel);min-height:0}
 #io>div{display:flex;flex-direction:column;min-height:0}
 #io>div+div{border-left:1px solid var(--border)}
@@ -118,7 +121,7 @@ tr.chg td{background:var(--changed)}
   <h1>🐍 PyStudio</h1>
   <span id="fname"></span>
   <span id="savestate"></span>
-  <span id="acct" class="hidden"><span id="who"></span><button id="btnSignIn">Sign in</button><button id="btnSignOut" class="hidden">Sign out</button></span>
+  <span id="acct" class="hidden"><span id="who"></span></span>
   <button id="btnRun" class="primary" title="Run (Ctrl+Enter)" disabled>▶ Run</button>
   <button id="btnDebug" title="Debug (F5)" disabled>🐞 Debug</button>
   <button id="btnStop" class="danger" title="Stop the program" disabled>■ Stop</button>
@@ -126,7 +129,11 @@ tr.chg td{background:var(--changed)}
 </header>
 <main>
   <aside id="files">
-    <div class="ptitle">My files</div>
+    <div id="viewing" class="hidden">
+      <div>Viewing <b id="viewName"></b><br><span>Changes save to their file</span></div>
+      <button id="btnMine">← My files</button>
+    </div>
+    <div class="ptitle" id="filesTitle">My files</div>
     <ul id="filelist"></ul>
     <div class="filebtns">
       <button id="fNew">+ New</button>
@@ -136,6 +143,11 @@ tr.chg td{background:var(--changed)}
       <button id="fDelete" class="danger" style="grid-column:span 2">Delete</button>
     </div>
     <input type="file" id="upload" accept=".py,.txt" multiple class="hidden">
+    <div id="teach" class="hidden">
+      <div class="ptitle">Classes <button id="btnClsRefresh" title="Reload class list" style="font-size:11px;padding:1px 7px">↻</button></div>
+      <select id="clsSel"></select>
+      <ul id="stuList"></ul>
+    </div>
   </aside>
 
   <div id="editor"><div id="banner"></div></div>
@@ -184,17 +196,6 @@ tr.chg td{background:var(--changed)}
     </div>
   </aside>
 </main>
-
-<div id="login" class="hidden">
-  <div class="card">
-    <h2>🐍 PyStudio</h2>
-    <p>Sign in with your school Google account to save your files online and open them on any computer.</p>
-    <p id="loginMsg"></p>
-    <button id="btnGoogle" class="primary">Sign in with Google</button>
-    <button id="btnGuest">Use without signing in</button>
-    <p class="small">Without signing in, files are saved only in this browser on this computer.</p>
-  </div>
-</div>
 
 <!-- Python side: runs student code and records every step with sys.settrace -->
 <script type="text/python" id="py-src">
@@ -343,7 +344,6 @@ self.onmessage = async (e) => {
 };
 </script>
 
-<script src="firebase-config.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/matchbrackets.min.js"></script>
@@ -454,12 +454,12 @@ $("#filelist").addEventListener("click", e => {
   saveCurrent(); endDebug(); clearMarks(); loadFile(n);
 });
 $("#filelist").addEventListener("dblclick", e => { if (e.target.closest("li")) startRename(); });
-function uniqueName(base) {
+function uniqueName(base, within = files) {
   base = base.replace(/[\\/:*?"<>|]/g, "").trim() || "untitled.py";
   if (!/\.py$/i.test(base)) base += ".py";
-  if (!files[base]) return base;
+  if (!within[base]) return base;
   const stem = base.replace(/\.py$/i, "");
-  for (let i = 2; ; i++) if (!files[`${stem}${i}.py`]) return `${stem}${i}.py`;
+  for (let i = 2; ; i++) if (!within[`${stem}${i}.py`]) return `${stem}${i}.py`;
 }
 $("#fNew").onclick = () => {
   saveCurrent(); endDebug();
@@ -498,7 +498,7 @@ $("#fDelete").onclick = () => {
   if (!delArmed) { b.textContent = `Really delete ${current}?`; delArmed = setTimeout(() => { delArmed = null; b.textContent = "Delete"; }, 3000); return; }
   clearTimeout(delArmed); delArmed = null; b.textContent = "Delete";
   endDebug(); delete files[current];
-  if (!Object.keys(files).length) files["untitled.py"] = { code: "", bps: [] };
+  if (!Object.keys(files).length) files["untitled.py"] = { code: "", bps: [], placeholder: true };
   persist();
   loadFile(Object.keys(files).sort()[0]);
 };
@@ -596,7 +596,7 @@ function markLine(line, cls) {
   cm.scrollIntoView({ line: line - 1, ch: 0 }, 80);
 }
 let bannerT;
-function banner(t) { const b = $("#banner"); b.textContent = t; b.style.display = "block"; clearTimeout(bannerT); bannerT = setTimeout(() => b.style.display = "none", 2500); }
+function banner(t, ms = 2500) { const b = $("#banner"); b.textContent = t; b.style.display = "block"; clearTimeout(bannerT); bannerT = setTimeout(() => b.style.display = "none", ms); }
 
 // ---------- run / debug ----------
 const newSeed = () => Math.floor(Math.random() * 2 ** 31);
@@ -736,178 +736,8 @@ document.addEventListener("keydown", e => {
 });
 window.addEventListener("beforeunload", e => {
   saveCurrent();
-  if (mode === "cloud") { flush(); if (inflight) { e.preventDefault(); e.returnValue = ""; } }
+  if (mode === "cloud" && (inflight || flushT)) { flush(); e.preventDefault(); e.returnValue = ""; }
 });
-
-// ---------- storage: this browser (guest) or the student's online account (Firebase) ----------
-const CFG = window.PYSTUDIO_CONFIG || {};
-let mode = "local", user = null, db = null, synced = new Map(), flushT = null, inflight = 0;
-const curKey = () => user ? "pystudio.current." + user.uid : "pystudio.current";
-const sampleFiles = () => ({ "hello.py": { code: SAMPLE, bps: [14] } });
-
-function localFiles() {
-  const f = store.get("pystudio.files", null);
-  return f && typeof f === "object" && Object.keys(f).length ? f : sampleFiles();
-}
-function persist() {
-  if (!files) return;
-  if (mode === "local") { store.set("pystudio.files", files); return; }
-  setSaveState("saving");
-  clearTimeout(flushT); flushT = setTimeout(flush, 800);
-}
-// Writes only the files that changed since the last successful save, plus any deletions.
-async function flush() {
-  clearTimeout(flushT); flushT = null;
-  if (mode !== "cloud" || !user || !files) return;
-  const col = db.collection("users").doc(user.uid).collection("files");
-  const batch = db.batch(), seen = new Set(), changes = [];
-  for (const [name, f] of Object.entries(files)) {
-    if (!f.id) f.id = col.doc().id;
-    seen.add(f.id);
-    const sig = JSON.stringify([name, f.code, f.bps || []]);
-    if (synced.get(f.id) !== sig) {
-      batch.set(col.doc(f.id), { name, code: f.code, bps: f.bps || [], updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
-      changes.push([f.id, sig]);
-    }
-  }
-  for (const id of synced.keys()) if (!seen.has(id)) { batch.delete(col.doc(id)); changes.push([id, null]); }
-  if (!changes.length) { if (!inflight) setSaveState("saved"); return; }
-  for (const [id, sig] of changes) sig == null ? synced.delete(id) : synced.set(id, sig);
-  const uid = user.uid;
-  inflight++;
-  try {
-    await batch.commit();
-    inflight--;
-    if (user && user.uid === uid && !inflight && !flushT) setSaveState("saved");
-  } catch (err) {
-    inflight--;
-    console.error("Save failed", err);
-    for (const [id] of changes) synced.set(id, "retry");   // forces a rewrite / re-delete next time
-    if (user && user.uid === uid) { setSaveState("error"); clearTimeout(flushT); flushT = setTimeout(flush, 5000); }
-  }
-}
-function setSaveState(s) {
-  const el = $("#savestate");
-  const offline = !navigator.onLine;
-  const t = {
-    local: ["💾 Saved on this computer", ""],
-    saving: [offline ? "⚠ Offline — will save when reconnected" : "Saving…", offline ? "warn" : "busy"],
-    saved: ["☁ Saved", "ok"],
-    error: ["⚠ Not saved — retrying…", "warn"],
-  }[s];
-  el.textContent = t[0]; el.className = t[1];
-}
-addEventListener("online", () => { if (mode === "cloud") flush(); });
-addEventListener("offline", () => { if (mode === "cloud" && (inflight || flushT)) setSaveState("saving"); });
-
-function switchFiles(newMode, u, f) {
-  endDebug(); clearMarks(); showOutput("");
-  mode = newMode; user = u; files = f;
-  current = store.get(curKey(), null);
-  if (!files[current]) current = Object.keys(files).sort()[0];
-  loadFile(current);
-  renderAcct();
-  setSaveState(mode === "local" ? "local" : "saved");
-}
-function useLocal() { synced = new Map(); switchFiles("local", null, localFiles()); }
-
-async function useCloud(u) {
-  showLogin("Loading your files…", true);
-  const col = db.collection("users").doc(u.uid).collection("files");
-  let snap;
-  try { snap = await col.get(); }
-  catch (e) { await firebase.auth().signOut(); showLogin("Could not load your files: " + e.message); return; }
-  const f = {}, s = new Map();
-  snap.forEach(d => {
-    const x = d.data();
-    let n = x.name || "untitled.py";
-    for (let i = 2; f[n]; i++) n = (x.name || "untitled.py").replace(/\.py$/i, "") + i + ".py";
-    f[n] = { code: x.code || "", bps: x.bps || [], id: d.id };
-    s.set(d.id, JSON.stringify([x.name, x.code || "", x.bps || []]));
-  });
-  const first = !snap.size;
-  db.collection("users").doc(u.uid).set({
-    email: u.email, name: u.displayName || "", lastSeen: firebase.firestore.FieldValue.serverTimestamp(),
-  }, { merge: true }).catch(() => {});
-  synced = s;
-  switchFiles("cloud", u, first ? sampleFiles() : f);
-  hideLogin();
-  if (first) persist();
-}
-
-function allowedEmail(email) {
-  const doms = (CFG.allowedDomains || []).map(d => d.toLowerCase());
-  email = (email || "").toLowerCase();
-  return !doms.length || doms.some(d => email.endsWith("@" + d) || email.endsWith("." + d));
-}
-function showLogin(msg, busy) {
-  $("#login").classList.remove("hidden");
-  $("#loginMsg").textContent = msg || "";
-  $("#btnGoogle").disabled = $("#btnGuest").disabled = !!busy;
-}
-function hideLogin() { $("#login").classList.add("hidden"); }
-function renderAcct() {
-  $("#acct").classList.toggle("hidden", !CFG.firebase);
-  $("#who").textContent = user ? user.email : "Not signed in";
-  $("#btnSignIn").classList.toggle("hidden", !!user);
-  $("#btnSignOut").classList.toggle("hidden", !user);
-}
-function loadScript(src) {
-  return new Promise((res, rej) => {
-    const s = document.createElement("script");
-    s.src = src; s.onload = res; s.onerror = () => rej(new Error("Could not load " + src));
-    document.head.appendChild(s);
-  });
-}
-
-async function initAccounts() {
-  if (!CFG.firebase) { useLocal(); return; }
-  showLogin("Checking sign-in…", true);
-  try {
-    const base = "https://www.gstatic.com/firebasejs/10.14.1/";
-    await loadScript(base + "firebase-app-compat.js");
-    await Promise.all([loadScript(base + "firebase-auth-compat.js"), loadScript(base + "firebase-firestore-compat.js")]);
-    firebase.initializeApp(CFG.firebase);
-    db = firebase.firestore();
-  } catch (e) {
-    hideLogin(); useLocal();
-    banner("Online saving is unavailable — files are saved on this computer");
-    return;
-  }
-  firebase.auth().onAuthStateChanged(async u => {
-    if (u && !allowedEmail(u.email)) {
-      await firebase.auth().signOut();
-      showLogin(`Please use your school account (${CFG.allowedDomains.join(" or ")}).`);
-      return;
-    }
-    if (u) { await useCloud(u); return; }
-    // Signed out: hide the previous student's files straight away.
-    if (mode === "cloud" || !files) { synced = new Map(); useLocal(); }
-    showLogin();
-  });
-}
-
-$("#btnGoogle").onclick = async () => {
-  saveCurrent();
-  const p = new firebase.auth.GoogleAuthProvider();
-  p.setCustomParameters({ prompt: "select_account" });
-  try { await firebase.auth().signInWithPopup(p); }
-  catch (e) {
-    if (e.code === "auth/popup-blocked") return firebase.auth().signInWithRedirect(p);
-    if (e.code !== "auth/popup-closed-by-user" && e.code !== "auth/cancelled-popup-request") showLogin("Sign-in failed: " + e.message);
-  }
-};
-$("#btnGuest").onclick = () => { hideLogin(); if (mode !== "local") useLocal(); };
-$("#btnSignIn").onclick = () => { saveCurrent(); showLogin(); };
-$("#btnSignOut").onclick = async () => {
-  saveCurrent();
-  await Promise.race([flush(), new Promise(r => setTimeout(r, 4000))]);
-  await firebase.auth().signOut();
-};
-
-renderWatches();
-startWorker();
-initAccounts();
 
 // ---------- Apps Script bridge ----------
 // When PyStudio is opened through the school's Apps Script link, that page shows this
@@ -957,10 +787,282 @@ const bridge = (() => {
   };
 })();
 
-bridge.ready.then(() => bridge.call("whoAmI")).then(email => {
-  $("#acct").classList.remove("hidden"); $("#btnSignIn").classList.add("hidden");
-  $("#who").textContent = "Signed in as " + (email || "(unknown)");
-}).catch(err => { $("#acct").classList.remove("hidden"); $("#who").textContent = "Sign-in check failed: " + err.message; });
+// ---------- storage ----------
+// Files are kept in this browser (local mode) or, when PyStudio is opened through the
+// school's Apps Script link, in the owner's folder in the teacher's Google Drive (cloud mode).
+let mode = "local", me = null, view = null, synced = new Map(), flushT = null, inflight = false, again = false;
+let tmpN = 0, pollT = null, ctxN = 0, classes = [];
+const curKey = () => view ? "pystudio.current." + view.target : "pystudio.current";
+const sampleFiles = () => ({ "hello.py": { code: SAMPLE, bps: [14] } });
+const sigOf = (name, f) => JSON.stringify([name, f.code, f.bps || []]);
+const firstName = n => String(n || "").split(/[\s@]/)[0];
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+function localFiles() {
+  const f = store.get("pystudio.files", null);
+  return f && typeof f === "object" && Object.keys(f).length ? f : sampleFiles();
+}
+function persist() {
+  if (!files) return;
+  if (mode === "local") { store.set("pystudio.files", files); return; }
+  setSaveState("saving");
+  clearTimeout(flushT); flushT = setTimeout(flush, 1500);
+}
+
+// Sends the files that changed since the last save, plus deletions. Only one save runs at a time.
+async function flush() {
+  clearTimeout(flushT); flushT = null;
+  if (mode !== "cloud" || !files) return;
+  if (inflight) { again = true; return; }
+  const upserts = [], deletes = [], seen = new Set(), sent = new Map();
+  for (const [name, f] of Object.entries(files)) {
+    if (f.id) seen.add(f.id);
+    if (!f.id && f.placeholder && !f.code) continue;   // empty starter file nobody has typed in
+    const sig = sigOf(name, f);
+    if (f.id && synced.get(f.id) === sig) continue;
+    const key = f.id || (f.tmp ||= "new" + (++tmpN));
+    upserts.push({ key, id: f.id || null, base: f.id ? (f.v ?? null) : null, name, content: f.code, bps: f.bps || [] });
+    sent.set(key, [f, sig]);
+  }
+  for (const id of synced.keys()) if (!seen.has(id)) deletes.push(id);
+  if (!upserts.length && !deletes.length) { setSaveState("saved"); return; }
+  inflight = true; setSaveState("saving");
+  const ctx = ctxN;
+  try {
+    const r = await bridge.call("syncFiles", view.target, upserts, deletes);
+    inflight = false;
+    if (ctx !== ctxN) return;
+    for (const id of deletes) synced.delete(id);
+    for (const [key, [f, sig]] of sent) {
+      const s = r.saved[key];
+      if (!s) continue;
+      f.id = s.id; f.v = s.v; delete f.tmp; delete f.placeholder;
+      synced.set(s.id, sig);
+    }
+    for (const c of r.conflicts) resolveConflict(c, sent.get(c.key));
+    if (again || r.conflicts.length) { again = false; flush(); }
+    else if (!flushT) setSaveState("saved");
+  } catch (err) {
+    inflight = false; again = false;
+    if (ctx !== ctxN) return;
+    console.error("Save failed", err);
+    setSaveState("error", err.message);
+    clearTimeout(flushT); flushT = setTimeout(flush, 5000);
+  }
+}
+
+// Someone else saved the file since we loaded it: keep their version, save ours as a copy.
+function resolveConflict(c, entry) {
+  const f = entry && entry[0];
+  const name = Object.keys(files).find(n => files[n] === f);
+  if (!name) return;
+  const mine = uniqueName(name.replace(/\.py$/i, "") + "-mine.py");
+  files[mine] = { code: f.code, bps: f.bps || [] };
+  delete files[name];
+  const theirsName = files[c.name] ? name : c.name;
+  files[theirsName] = { code: c.content, bps: c.bps || [], id: c.id, v: c.v };
+  synced.set(c.id, sigOf(theirsName, files[theirsName]));
+  if (current === name) { current = theirsName; reloadEditor(); }
+  renderFiles();
+  banner(`${who(c.by)} changed ${theirsName} at the same time. Their version is kept — yours is saved as ${mine}.`, 9000);
+}
+function who(email) {
+  if (!email || email === me?.email) return "You (in another window)";
+  if (view && email === view.target) return view.label;
+  return me?.role === "student" ? "Your teacher" : "Someone else";
+}
+
+// Saves everything now; gives up after `ms`.
+async function saveNow(ms = 8000) {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    if (!inflight) { await flush(); if (!inflight && !flushT && !again) return true; }
+    await sleep(200);
+  }
+  return false;
+}
+
+// Re-shows the current file after it changed elsewhere, keeping the cursor and scroll position.
+function reloadEditor() {
+  const cur = cm.getCursor(), sc = cm.getScrollInfo(), f = files[current];
+  loading = true;
+  cm.setValue(f.code);
+  for (const l of f.bps || []) if (l - 1 < cm.lineCount()) cm.setGutterMarker(l - 1, "bp-gutter", bpMarker());
+  cm.setCursor(cur); cm.scrollTo(sc.left, sc.top);
+  loading = false;
+  $("#fname").textContent = current;
+}
+
+// ---------- live refresh: picks up changes saved by someone else ----------
+function schedulePoll() {
+  clearTimeout(pollT);
+  if (mode === "cloud" && view) pollT = setTimeout(poll, view.isMe ? 20000 : 4000);
+}
+async function poll() {
+  if (mode !== "cloud") return;
+  if (inflight || flushT || document.hidden || renaming) return schedulePoll();
+  const ctx = ctxN, known = {};
+  for (const f of Object.values(files)) if (f.id) known[f.id] = f.v;
+  try {
+    const r = await bridge.call("listFiles", view.target, known);
+    if (ctx === ctxN && !inflight && !flushT) mergeRemote(r.files);
+  } catch (e) { console.warn("Refresh failed", e); }
+  if (ctx === ctxN) schedulePoll();
+}
+function mergeRemote(list) {
+  const nameById = new Map(Object.entries(files).filter(([, f]) => f.id).map(([n, f]) => [f.id, n]));
+  const ids = new Set();
+  let changed = false;
+  for (const s of list) {
+    ids.add(s.id);
+    const name = nameById.get(s.id);
+    if (name == null) {
+      if (synced.has(s.id) || s.content === undefined) continue;   // deleted here, not saved yet
+      const n = uniqueName(s.name);
+      files[n] = { code: s.content, bps: s.bps || [], id: s.id, v: s.v };
+      synced.set(s.id, sigOf(n, files[n]));
+      changed = true;
+      continue;
+    }
+    const f = files[name];
+    if (s.v === f.v || s.content === undefined) continue;
+    if (synced.get(s.id) !== sigOf(name, f)) continue;   // unsaved edits here; saving sorts it out
+    if (dbg && name === current) continue;               // don't change code under the debugger
+    delete files[name];
+    const n = s.name === name || !files[s.name] ? s.name : name;
+    files[n] = { code: s.content, bps: s.bps || [], id: s.id, v: s.v };
+    synced.set(s.id, sigOf(n, files[n]));
+    if (current === name) {
+      current = n; reloadEditor();
+      if (view.isMe && s.by && s.by !== me.email) banner(`${who(s.by)} updated ${n}`, 5000);
+    }
+    changed = true;
+  }
+  for (const [name, f] of Object.entries(files)) {
+    if (f.id && !ids.has(f.id) && synced.get(f.id) === sigOf(name, f)) { delete files[name]; synced.delete(f.id); changed = true; }
+  }
+  if (!changed) return;
+  if (!Object.keys(files).length) files["untitled.py"] = { code: "", bps: [], placeholder: true };
+  if (!files[current]) loadFile(Object.keys(files).sort()[0]); else renderFiles();
+}
+
+// ---------- switching whose files are shown ----------
+function setSaveState(s, detail) {
+  const el = $("#savestate"), offline = !navigator.onLine;
+  const t = {
+    local: ["💾 Saved on this computer", ""],
+    saving: [offline ? "⚠ Offline — will save when reconnected" : "Saving…", offline ? "warn" : ""],
+    saved: ["☁ Saved to Google Drive", "ok"],
+    error: ["⚠ Not saved — retrying…", "warn"],
+    opening: [detail, ""],
+  }[s];
+  el.textContent = t[0]; el.className = t[1]; el.title = s === "error" ? detail || "" : "";
+}
+addEventListener("online", () => { if (mode === "cloud") flush(); });
+addEventListener("offline", () => { if (mode === "cloud" && (inflight || flushT)) setSaveState("saving"); });
+
+function switchFiles(newMode, f) {
+  endDebug(); clearMarks(); showOutput("");
+  mode = newMode; files = f;
+  current = store.get(curKey(), null);
+  if (!files[current]) current = Object.keys(files).sort()[0];
+  loadFile(current);
+  renderView();
+  setSaveState(mode === "local" ? "local" : "saved");
+  schedulePoll();
+}
+function useLocal() { view = null; synced = new Map(); switchFiles("local", localFiles()); }
+
+async function openView(target, label, isMe) {
+  saveCurrent();
+  if (mode === "cloud" && !(await saveNow())) { banner("Could not save your changes — check your connection and try again.", 6000); return; }
+  const ctx = ++ctxN;
+  clearTimeout(pollT);
+  setSaveState("opening", isMe ? "Opening your files…" : `Opening ${firstName(label)}'s files…`);
+  let r;
+  try { r = await bridge.call("listFiles", target, {}); }
+  catch (e) {
+    if (ctx === ctxN) { setSaveState(mode === "local" ? "local" : "saved"); banner("Could not open files: " + e.message, 6000); }
+    return;
+  }
+  if (ctx !== ctxN) return;
+  const f = {}, s = new Map();
+  for (const x of r.files) {
+    const n = uniqueName(x.name, f);
+    f[n] = { code: x.content ?? "", bps: x.bps || [], id: x.id, v: x.v };
+    s.set(x.id, sigOf(n, f[n]));
+  }
+  synced = s;
+  view = { target, label, isMe };
+  if (!r.files.length) Object.assign(f, isMe ? sampleFiles() : { "untitled.py": { code: "", bps: [], placeholder: true } });
+  switchFiles("cloud", f);
+  if (!r.files.length && isMe) persist();
+}
+
+function renderView() {
+  const other = mode === "cloud" && view && !view.isMe;
+  $("#viewing").classList.toggle("hidden", !other);
+  if (other) $("#viewName").textContent = view.label;
+  $("#filesTitle").textContent = other ? `${firstName(view.label)}'s files` : "My files";
+  renderStudents();
+}
+function showAcct(text) { $("#acct").classList.remove("hidden"); $("#who").textContent = text; }
+
+// ---------- teacher: classes and students ----------
+async function loadClasses() {
+  try { classes = await bridge.call("listClasses"); }
+  catch (e) { banner("Could not load classes: " + e.message, 6000); return; }
+  const sel = $("#clsSel"), keep = store.get("pystudio.class", null);
+  sel.innerHTML = classes.length
+    ? classes.map(c => `<option>${esc(c.name)}</option>`).join("")
+    : `<option value="">No classes yet — add students to the sheet</option>`;
+  if (classes.some(c => c.name === keep)) sel.value = keep;
+  renderStudents();
+}
+function ago(t) {
+  if (!t) return "never";
+  const m = (Date.now() - t) / 60000;
+  if (m < 2) return "now";
+  if (m < 60) return Math.round(m) + "m ago";
+  if (m < 1440) return Math.round(m / 60) + "h ago";
+  return Math.round(m / 1440) + "d ago";
+}
+function renderStudents() {
+  const c = classes.find(c => c.name === $("#clsSel").value);
+  $("#stuList").innerHTML = (c ? c.students : []).map(s =>
+    `<li data-email="${esc(s.email)}" class="${view && view.target === s.email ? "active" : ""}" title="${esc(s.email)}">${esc(s.name)}<small>${ago(s.last)}</small></li>`
+  ).join("") || `<li style="cursor:default"><small>No students in this class</small></li>`;
+}
+$("#clsSel").onchange = () => { store.set("pystudio.class", $("#clsSel").value); renderStudents(); };
+$("#stuList").onclick = e => {
+  const li = e.target.closest("li[data-email]");
+  if (!li || (view && view.target === li.dataset.email)) return;
+  const s = classes.flatMap(c => c.students).find(s => s.email === li.dataset.email);
+  if (s) openView(s.email, s.name, false);
+};
+$("#btnMine").onclick = () => openView(me.email, me.name, true);
+$("#btnClsRefresh").onclick = loadClasses;
+
+// ---------- start-up: who is signed in? ----------
+async function initAccounts() {
+  useLocal();
+  if (window.parent === window) return;   // opened directly, not through the school link
+  let info;
+  try { info = await Promise.race([bridge.call("whoAmI"), sleep(20000).then(() => { throw new Error("no answer"); })]); }
+  catch (e) { showAcct("Not connected — files are saved on this computer only"); return; }
+  me = info;
+  if (me.role === "none") {
+    showAcct(`${me.email} · not on a class list`);
+    banner("Your account is not on a class list yet — ask your teacher to add you. Until then, files are saved on this computer only.", 10000);
+    return;
+  }
+  showAcct(me.role === "teacher" ? `${me.email} · Teacher` : `${me.name} · ${me.cls}`);
+  if (me.role === "teacher") { $("#teach").classList.remove("hidden"); loadClasses(); }
+  await openView(me.email, me.name, true);
+}
+renderWatches();
+startWorker();
+initAccounts();
 </script>
 </body>
 </html>

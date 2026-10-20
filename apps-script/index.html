@@ -8,12 +8,14 @@
   </style>
 </head>
 <body>
-  <!-- PyStudio itself lives on GitHub Pages; this page only adds the school sign-in. -->
-  <iframe id="app" src="https://abidbkk.github.io/pystudio/" allow="clipboard-read; clipboard-write"></iframe>
+  <!-- PyStudio itself lives on GitHub Pages; this page adds the school sign-in and passes
+       PyStudio's save/load requests to Code.gs. -->
+  <iframe id="app" allow="clipboard-read; clipboard-write"></iframe>
   <script>
     const APP_ORIGIN = "https://abidbkk.github.io";
-    const ALLOWED = ["whoAmI"];   // server functions PyStudio may call
+    const ALLOWED = ["whoAmI", "listFiles", "syncFiles", "listClasses"];   // server functions PyStudio may call
     const app = document.getElementById("app");
+    app.src = APP_ORIGIN + "/pystudio/?t=" + Date.now();   // always load the latest version
 
     function send(msg) { app.contentWindow.postMessage(Object.assign({ pystudio: 1 }, msg), APP_ORIGIN); }
 
