@@ -77,6 +77,13 @@ aside#files{grid-area:files;background:var(--panel);border-right:1px solid var(-
 #io{grid-area:io;display:grid;grid-template-columns:minmax(0,1fr);border-top:1px solid var(--border);background:var(--panel);min-height:0}
 #io>div{display:flex;flex-direction:column;min-height:0}
 #io>div+div{border-left:1px solid var(--border)}
+main.drawing{grid-template-rows:minmax(0,1fr) 340px}
+main.drawing #io{grid-template-columns:minmax(0,1fr) minmax(0,1.3fr)}
+#drawbox{flex:1;min-height:0;margin:0 8px 8px;border:1px solid var(--border);border-radius:6px;overflow:hidden;background:#fff}
+#draw{display:block;width:100%;height:100%}
+.drbtns{display:flex;gap:4px}
+.drbtns button{font-size:11px;padding:1px 7px}
+#drawwrap.big{position:fixed;inset:4vh 4vw;z-index:60;background:var(--panel);border:1px solid var(--border)!important;border-radius:10px;box-shadow:0 20px 60px rgba(0,0,0,.35)}
 #output{flex:1;margin:0;padding:4px 12px 10px;overflow:auto;font-family:var(--mono);font-size:13px;white-space:pre-wrap;word-break:break-word}
 #output .err{color:var(--danger)}
 #output .note{color:var(--muted);font-style:italic}
@@ -111,6 +118,9 @@ tr.chg td{background:var(--changed)}
   #filelist{display:flex;flex-wrap:wrap;gap:4px;max-height:90px}
   .filebtns{grid-template-columns:repeat(5,auto);justify-content:start}
   #io{grid-template-columns:1fr;min-height:260px}
+  main.drawing{grid-template-rows:auto 55vh auto auto}
+  main.drawing #io{grid-template-columns:1fr}
+  #drawwrap:not(.big){height:340px}
   #io>div+div{border-left:0;border-top:1px solid var(--border)}
   aside#debug{border-left:0;border-top:1px solid var(--border);min-height:400px}
 }
@@ -156,6 +166,10 @@ tr.chg td{background:var(--changed)}
     <div>
       <div class="ptitle">Output <button id="btnClear" style="font-size:11px;padding:1px 8px">Clear</button></div>
       <pre id="output"></pre>
+    </div>
+    <div id="drawwrap" class="hidden">
+      <div class="ptitle">Drawing <span class="drbtns"><button id="drSkip" title="Finish the drawing now">⏭</button><button id="drReplay" title="Draw it again">↻</button><button id="drBig" title="Enlarge (Esc to close)">⤢</button></span></div>
+      <div id="drawbox"><canvas id="draw"></canvas></div>
     </div>
   </section>
 
@@ -285,6 +299,9 @@ def run(code, answers_json, watches_json, seed, trace):
     bi["input"] = _input
     g = {"__name__": "__main__", "__builtins__": bi}
     random.seed(seed)
+    import turtle as _turtle
+    _turtle._reset()
+    _turtle._step = (lambda: len(steps) - 1) if trace else (lambda: 0)
     result = {"steps": steps, "error": None, "errorLine": None, "limit": False, "needInput": False}
     old_out, old_err = sys.stdout, sys.stderr
     sys.stdout = sys.stderr = out
@@ -315,7 +332,354 @@ def run(code, answers_json, watches_json, seed, trace):
     finally:
         sys.stdout, sys.stderr = old_out, old_err
     result["output"] = out.getvalue()
+    result["turtle"] = list(_turtle._cmds)
     return json.dumps(result)
+</script>
+
+<!-- PyStudio's turtle module (recorded commands are drawn in the Drawing panel) -->
+<script type="text/python" id="turtle-src">
+"""PyStudio's turtle: the usual turtle commands, recorded and drawn in the Drawing panel."""
+import math as _m
+
+__all__ = ["Turtle", "Pen", "RawTurtle", "Screen", "Vec2D", "done", "mainloop", "exitonclick", "bye",
+           "bgcolor", "title", "setup", "screensize", "tracer", "update", "delay", "colormode", "listen",
+           "onkey", "onkeypress", "onkeyrelease", "onclick", "onscreenclick", "ontimer",
+           "window_width", "window_height", "turtles"]
+
+_MAX = 50000
+_cmds = []
+_turtles = []
+_step = lambda: 0          # set by PyStudio: which debugger step is running
+_colormode = [1.0]
+_instant = [False]         # tracer(0): draw without animation
+_pen = [None]
+
+
+def _reset():
+    _cmds.clear()
+    _turtles.clear()
+    Turtle._n = 0
+    _pen[0] = None
+    _colormode[0] = 1.0
+    _instant[0] = False
+    _screen._bg = "white"
+
+
+def _record(c):
+    if len(_cmds) >= _MAX:
+        raise RuntimeError("Too many turtle drawing commands (over 50,000)")
+    c["s"] = _step()
+    _cmds.append(c)
+
+
+def _col(args):
+    a = args[0] if len(args) == 1 else args
+    if isinstance(a, str):
+        return a.replace(" ", "")
+    if isinstance(a, (tuple, list)) and len(a) == 3:
+        r, g, b = a
+        if _colormode[0] == 1.0:
+            r, g, b = (v * 255 for v in (r, g, b))
+        return "rgb(%d,%d,%d)" % (round(r), round(g), round(b))
+    raise TypeError("bad colour: %r" % (a,))
+
+
+def _unsupported(*args, **kwargs):
+    raise NotImplementedError("PyStudio's turtle can't react to keys, clicks or timers yet")
+
+
+class Vec2D(tuple):
+    def __new__(cls, x, y):
+        return tuple.__new__(cls, (x, y))
+    def __add__(self, o): return Vec2D(self[0] + o[0], self[1] + o[1])
+    def __sub__(self, o): return Vec2D(self[0] - o[0], self[1] - o[1])
+    def __abs__(self): return _m.hypot(self[0], self[1])
+    def __repr__(self): return "(%.2f,%.2f)" % self
+
+
+class Turtle:
+    _n = 0
+
+    def __init__(self, shape="classic", visible=True):
+        Turtle._n += 1
+        self._id = Turtle._n
+        self._x = self._y = self._h = 0.0
+        self._down = True
+        self._pc = self._fc = "black"
+        self._w = 1
+        self._vis = visible
+        self._fill = None
+        self._speed = 3
+        self._shape = shape
+        _turtles.append(self)
+        self._emit("r")
+
+    def _emit(self, k, **kw):
+        kw.update(k=k, id=self._id, x=round(self._x, 3), y=round(self._y, 3), h=round(self._h, 3),
+                  v=self._vis, pc=self._pc, fc=self._fc, w=self._w, sh=self._shape,
+                  sp=0 if _instant[0] else self._speed)
+        _record(kw)
+
+    # ---- moving
+    def _goto(self, x, y):
+        x0, y0 = self._x, self._y
+        self._x, self._y = float(x), float(y)
+        if self._fill is not None:
+            self._fill.append((self._x, self._y))
+        self._emit("m", x0=round(x0, 3), y0=round(y0, 3), d=self._down)
+
+    def forward(self, distance):
+        r = _m.radians(self._h)
+        self._goto(self._x + distance * _m.cos(r), self._y + distance * _m.sin(r))
+    fd = forward
+
+    def backward(self, distance):
+        self.forward(-distance)
+    bk = back = backward
+
+    def left(self, angle):
+        self._h = (self._h + angle) % 360
+        self._emit("r")
+    lt = left
+
+    def right(self, angle):
+        self.left(-angle)
+    rt = right
+
+    def goto(self, x, y=None):
+        if y is None:
+            x, y = x
+        self._goto(x, y)
+    setpos = setposition = goto
+
+    def setx(self, x): self._goto(x, self._y)
+    def sety(self, y): self._goto(self._x, y)
+
+    def setheading(self, angle):
+        self._h = angle % 360
+        self._emit("r")
+    seth = setheading
+
+    def home(self):
+        self._goto(0, 0)
+        self.setheading(0)
+
+    def circle(self, radius, extent=None, steps=None):
+        extent = 360 if extent is None else extent
+        if steps is None:
+            steps = 1 + int(min(11 + abs(radius) / 6.0, 59.0) * abs(extent) / 360.0)
+        w = extent / steps
+        w2 = 0.5 * w
+        l = 2.0 * radius * _m.sin(_m.radians(w2))
+        if radius < 0:
+            l, w, w2 = -l, -w, -w2
+        self.left(w2)
+        for _ in range(steps):
+            self.forward(l)
+            self.left(w)
+        self.left(-w2)
+
+    def teleport(self, x=None, y=None, **kw):
+        d = self._down
+        self._down = False
+        self._goto(self._x if x is None else x, self._y if y is None else y)
+        self._down = d
+
+    # ---- drawing
+    def penup(self): self._down = False
+    pu = up = penup
+
+    def pendown(self): self._down = True
+    pd = down = pendown
+
+    def isdown(self): return self._down
+
+    def pensize(self, width=None):
+        if width is None:
+            return self._w
+        self._w = width
+    width = pensize
+
+    def pencolor(self, *args):
+        if not args:
+            return self._pc
+        self._pc = _col(args)
+        self._emit("r")
+
+    def fillcolor(self, *args):
+        if not args:
+            return self._fc
+        self._fc = _col(args)
+        self._emit("r")
+
+    def color(self, *args):
+        if not args:
+            return self._pc, self._fc
+        if len(args) == 2:
+            self._pc, self._fc = _col(args[:1]), _col(args[1:])
+        else:
+            self._pc = self._fc = _col(args)
+        self._emit("r")
+
+    def begin_fill(self):
+        self._fill = [(self._x, self._y)]
+        self._fill_from = len(_cmds)
+
+    def end_fill(self):
+        if self._fill and len(self._fill) > 2:
+            self._emit("fill", pts=[round(c, 3) for p in self._fill for c in p], col=self._fc, frm=self._fill_from)
+        self._fill = None
+
+    def filling(self): return self._fill is not None
+
+    def dot(self, size=None, *color):
+        if size is None:
+            size = max(self._w + 4, self._w * 2)
+        self._emit("dot", r=size, col=_col(color) if color else self._pc)
+
+    def stamp(self):
+        self._emit("stamp")
+        return len(_cmds)
+
+    def write(self, arg, move=False, align="left", font=("Arial", 8, "normal")):
+        font = tuple(font) + ("Arial", 8, "normal")[len(font):]
+        self._emit("write", text=str(arg), align=str(align), font=[str(font[0]), float(font[1]), str(font[2])])
+
+    def clear(self): self._emit("clear")
+
+    def reset(self):
+        self._emit("clear")
+        self._down, self._pc, self._fc, self._w, self._vis = True, "black", "black", 1, True
+        self.teleport(0, 0)
+        self.setheading(0)
+
+    # ---- turtle look
+    def speed(self, speed=None):
+        if speed is None:
+            return self._speed
+        speed = {"fastest": 0, "fast": 10, "normal": 6, "slow": 3, "slowest": 1}.get(speed, speed)
+        self._speed = int(round(speed)) if 0.5 <= speed <= 10.5 else 0
+
+    def hideturtle(self):
+        self._vis = False
+        self._emit("r")
+    ht = hideturtle
+
+    def showturtle(self):
+        self._vis = True
+        self._emit("r")
+    st = showturtle
+
+    def isvisible(self): return self._vis
+
+    def shape(self, name=None):
+        if name is None:
+            return self._shape
+        self._shape = name
+        self._emit("r")
+
+    def shapesize(self, *args, **kwargs): pass
+    turtlesize = shapesize
+
+    # ---- asking where the turtle is
+    def position(self): return Vec2D(self._x, self._y)
+    pos = position
+    def xcor(self): return self._x
+    def ycor(self): return self._y
+    def heading(self): return self._h
+
+    def distance(self, x, y=None):
+        if y is None:
+            x, y = x
+        return _m.hypot(x - self._x, y - self._y)
+
+    def towards(self, x, y=None):
+        if y is None:
+            x, y = x
+        return _m.degrees(_m.atan2(y - self._y, x - self._x)) % 360
+
+    def getscreen(self): return _screen
+
+    onclick = onrelease = ondrag = _unsupported
+
+
+Pen = RawTurtle = Turtle
+
+
+class _Screen:
+    _bg = "white"
+
+    def bgcolor(self, *args):
+        if not args:
+            return self._bg
+        self._bg = _col(args)
+        _record({"k": "bg", "col": self._bg})
+
+    def setup(self, width=None, height=None, startx=None, starty=None):
+        if isinstance(width, (int, float)) and isinstance(height, (int, float)) and width > 1 and height > 1:
+            _record({"k": "size", "w": width, "h": height})
+
+    def screensize(self, canvwidth=None, canvheight=None, bg=None):
+        self.setup(canvwidth, canvheight)
+        if bg is not None:
+            self.bgcolor(bg)
+
+    def tracer(self, n=None, delay=None):
+        if n is None:
+            return 0 if _instant[0] else 1
+        _instant[0] = (n == 0)
+
+    def colormode(self, cmode=None):
+        if cmode is None:
+            return _colormode[0]
+        _colormode[0] = 255 if cmode == 255 else 1.0
+
+    def clear(self):
+        _record({"k": "clearall"})
+    reset = clearscreen = resetscreen = clear
+
+    def turtles(self): return list(_turtles)
+    def window_width(self): return 800
+    def window_height(self): return 600
+    def title(self, *a): pass
+    def update(self): pass
+    def delay(self, *a): pass
+    def listen(self, *a): pass
+    def mainloop(self): pass
+    done = exitonclick = bye = mainloop
+    onkey = onkeypress = onkeyrelease = onclick = onscreenclick = ontimer = _unsupported
+
+
+_screen = _Screen()
+
+
+def Screen():
+    return _screen
+
+
+def _default():
+    if _pen[0] is None:
+        _pen[0] = Turtle()
+    return _pen[0]
+
+
+def _wrap(target, name):
+    def f(*args, **kwargs):
+        return getattr(target() if callable(target) else target, name)(*args, **kwargs)
+    f.__name__ = name
+    return f
+
+
+_TURTLE_FUNCS = [n for n in dir(Turtle) if not n.startswith("_") and callable(getattr(Turtle, n)) and n not in ("onclick", "getscreen")]
+for _n in _TURTLE_FUNCS:
+    globals()[_n] = _wrap(_default, _n)
+    __all__.append(_n)
+for _n in ["bgcolor", "title", "setup", "screensize", "tracer", "update", "delay", "colormode", "listen",
+           "mainloop", "done", "exitonclick", "bye", "onkey", "onkeypress", "onkeyrelease", "onscreenclick",
+           "ontimer", "window_width", "window_height", "turtles"]:
+    globals()[_n] = _wrap(_screen, _n)
+onclick = _unsupported
+del _n
 </script>
 
 <!-- Web Worker: hosts Pyodide so the page stays responsive and Stop can kill runaway loops -->
@@ -327,6 +691,8 @@ self.onmessage = async (e) => {
   if (m.type === "init") {
     try {
       py = await loadPyodide();
+      py.FS.writeFile("/home/pyodide/turtle.py", m.turtle);
+      py.runPython("import sys\nif '/home/pyodide' not in sys.path: sys.path.insert(0, '/home/pyodide')");
       py.runPython(m.runner);
       postMessage({ type: "ready", version: py.runPython("import sys; sys.version.split()[0]") });
     } catch (err) { postMessage({ type: "fatal", message: String(err) }); }
@@ -536,7 +902,7 @@ function startWorker() {
     }
   };
   worker.onerror = e => setStatus("Worker error: " + e.message, "err");
-  worker.postMessage({ type: "init", runner: $("#py-src").textContent });
+  worker.postMessage({ type: "init", runner: $("#py-src").textContent, turtle: $("#turtle-src").textContent });
 }
 function execute(trace, seed, answers) {
   return new Promise(resolve => {
@@ -555,7 +921,7 @@ $("#btnStop").onclick = () => {
     return;
   }
   if (!pending) return;
-  worker.terminate(); clearTimeout(busyTimer);
+  worker.terminate(); clearTimeout(busyTimer); drawing.stop();
   const p = pending; pending = null;
   p.resolve(null);
   showOutput("", null, "Program stopped. Restarting Python…");
@@ -598,14 +964,184 @@ function markLine(line, cls) {
 let bannerT;
 function banner(t, ms = 2500) { const b = $("#banner"); b.textContent = t; b.style.display = "block"; clearTimeout(bannerT); bannerT = setTimeout(() => b.style.display = "none", ms); }
 
+// ---------- turtle drawing panel ----------
+// The turtle module records commands while the program runs; this replays them on a canvas.
+// Run: animated at each turtle's speed(). Debug: drawn instantly up to the current step.
+const drawing = (() => {
+  const wrap = $("#drawwrap"), box = $("#drawbox"), cv = $("#draw"), ctx = cv.getContext("2d");
+  const ink = document.createElement("canvas"), ictx = ink.getContext("2d");
+  const SPEED = [0, 60, 100, 160, 230, 320, 430, 580, 780, 1100, 1600];   // world units per second
+  const SHAPES = {
+    classic: [[0, 0], [-5, -9], [0, -7], [5, -9]],
+    arrow: [[-10, 0], [10, 0], [0, 10]],
+    triangle: [[10, -5.77], [0, 11.55], [-10, -5.77]],
+    square: [[10, -10], [10, 10], [-10, 10], [-10, -10]],
+    turtle: [[0, 16], [-2, 14], [-1, 10], [-4, 7], [-7, 9], [-9, 8], [-6, 5], [-7, 1], [-5, -3], [-8, -6], [-6, -8], [-4, -5], [0, -7],
+      [4, -5], [6, -8], [8, -6], [5, -3], [7, 1], [6, 5], [9, 8], [7, 9], [4, 7], [1, 10], [2, 14]],
+    circle: Array.from({ length: 20 }, (_, i) => [10 * Math.cos(i * Math.PI / 10), 10 * Math.sin(i * Math.PI / 10)]),
+  };
+  let cmds = [], inked = 0, part = 0, raf = null, last = 0, view = null, states = new Map();
+
+  function prepare() {
+    // For each command, the index of the next clear() that wipes it (Infinity if none).
+    const next = {}; let all = Infinity;
+    for (let i = cmds.length - 1; i >= 0; i--) {
+      const c = cmds[i];
+      if (c.k === "clear") next[c.id] = i;
+      if (c.k === "clearall") all = i;
+      c._cb = Math.min(next[c.id] ?? Infinity, all);
+    }
+  }
+  function bounds() {
+    let x0 = -250, x1 = 250, y0 = -200, y1 = 200;
+    const add = (x, y) => { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; };
+    for (const c of cmds) {
+      if (c.k === "size") add(c.w / 2, c.h / 2), add(-c.w / 2, -c.h / 2);
+      else if (c.x != null) { add(c.x, c.y); if (c.k === "m") add(c.x0, c.y0); }
+    }
+    return { x0: x0 - 10, x1: x1 + 10, y0: y0 - 10, y1: y1 + 10 };
+  }
+  function layout() {
+    const dpr = devicePixelRatio || 1, w = box.clientWidth, h = box.clientHeight;
+    if (!w || !h) return false;
+    cv.width = ink.width = Math.round(w * dpr); cv.height = ink.height = Math.round(h * dpr);
+    const b = bounds(), s = Math.min(w / (b.x1 - b.x0), h / (b.y1 - b.y0));
+    view = { s, dpr, cx: w / 2 - (b.x0 + b.x1) / 2 * s, cy: h / 2 + (b.y0 + b.y1) / 2 * s };
+    return true;
+  }
+  const X = x => (view.cx + x * view.s) * view.dpr, Y = y => (view.cy - y * view.s) * view.dpr;
+  const lw = w => Math.max(1, (+w || 1) * view.s) * view.dpr;
+
+  function line(g, c, frac) {
+    g.strokeStyle = c.pc; g.lineWidth = lw(c.w); g.lineCap = "round";
+    g.beginPath(); g.moveTo(X(c.x0), Y(c.y0));
+    g.lineTo(X(c.x0 + (c.x - c.x0) * frac), Y(c.y0 + (c.y - c.y0) * frac)); g.stroke();
+  }
+  function shape(g, st, x, y) {
+    const pts = SHAPES[st.sh] || SHAPES.classic, a = (st.h - 90) * Math.PI / 180, d = view.dpr;
+    const cos = Math.cos(a), sin = Math.sin(a);
+    g.beginPath();
+    pts.forEach(([px, py], i) => {
+      const rx = (px * cos - py * sin) * d, ry = (px * sin + py * cos) * d;
+      i ? g.lineTo(X(x) + rx, Y(y) - ry) : g.moveTo(X(x) + rx, Y(y) - ry);
+    });
+    g.closePath(); g.fillStyle = st.fc; g.fill(); g.strokeStyle = st.pc; g.lineWidth = d; g.stroke();
+  }
+  function paint(g, i) {
+    const c = cmds[i];
+    if (c.k === "m") { if (c.d) line(g, c, 1); }
+    else if (c.k === "fill") {
+      g.beginPath();
+      for (let j = 0; j < c.pts.length; j += 2) j ? g.lineTo(X(c.pts[j]), Y(c.pts[j + 1])) : g.moveTo(X(c.pts[j]), Y(c.pts[j + 1]));
+      g.closePath(); g.fillStyle = c.col; g.fill("nonzero");
+      // outlines drawn while filling stay on top of the fill, as in real turtle
+      for (let j = c.frm; j < i; j++) { const o = cmds[j]; if (o.k === "m" && o.d && o.id === c.id && o._cb > i) line(g, o, 1); }
+    } else if (c.k === "dot") {
+      g.beginPath(); g.arc(X(c.x), Y(c.y), Math.max(0.5, c.r / 2 * view.s) * view.dpr, 0, 2 * Math.PI); g.fillStyle = c.col; g.fill();
+    } else if (c.k === "write") {
+      const [fam, size, style] = c.font;
+      g.font = `${style === "normal" ? "" : style} ${Math.max(6, size * 4 / 3) * view.dpr}px ${fam}, sans-serif`;
+      g.fillStyle = c.pc; g.textAlign = ["left", "center", "right"].includes(c.align) ? c.align : "left"; g.textBaseline = "alphabetic";
+      g.fillText(c.text, X(c.x), Y(c.y));
+    } else if (c.k === "stamp") shape(g, c, c.x, c.y);
+  }
+  function redrawInk(n) {
+    n = Math.min(n, cmds.length);
+    let bg = "white";
+    for (let i = 0; i < n; i++) if (cmds[i].k === "bg") bg = cmds[i].col;
+    ictx.setTransform(1, 0, 0, 1, 0, 0);
+    ictx.fillStyle = bg; ictx.fillRect(0, 0, ink.width, ink.height);
+    states = new Map();
+    for (let i = 0; i < n; i++) {
+      if (cmds[i]._cb >= n) paint(ictx, i);
+      if (cmds[i].id) states.set(cmds[i].id, cmds[i]);
+    }
+    inked = n; part = 0;
+  }
+  function commit(i) {
+    const c = cmds[i];
+    if (c.k === "clear" || c.k === "clearall" || c.k === "bg") redrawInk(i + 1);
+    else { paint(ictx, i); inked = i + 1; if (c.id) states.set(c.id, c); }
+  }
+  function present() {
+    if (!view) return;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(ink, 0, 0);
+    const cur = part > 0 ? cmds[inked] : null;
+    if (cur && cur.d) line(ctx, cur, part);
+    for (const [id, st] of states) {
+      if (cur && cur.id === id) continue;
+      if (st.v) shape(ctx, st, st.x, st.y);
+    }
+    if (cur && cur.v) shape(ctx, cur, cur.x0 + (cur.x - cur.x0) * part, cur.y0 + (cur.y - cur.y0) * part);
+  }
+  function frame(t) {
+    let budget = Math.min(0.1, (t - last) / 1000), n = 0;
+    last = t;
+    while (inked < cmds.length && n < 3000) {
+      const c = cmds[inked], v = SPEED[c.sp] || 0;
+      const dur = c.k === "m" && v ? Math.hypot(c.x - c.x0, c.y - c.y0) / v : 0;
+      if (!dur) { commit(inked); n++; continue; }
+      const need = dur * (1 - part);
+      if (budget < need) { part += budget / dur; break; }
+      budget -= need; commit(inked); part = 0; n++;
+    }
+    present();
+    raf = inked < cmds.length ? requestAnimationFrame(frame) : null;
+  }
+  function stop() { if (raf) cancelAnimationFrame(raf); raf = null; }
+  function animateFrom(n) {
+    stop(); redrawInk(n); present();
+    if (inked < cmds.length) { last = performance.now(); raf = requestAnimationFrame(frame); }
+  }
+  function show(list) {
+    stop();
+    cmds = list || [];
+    if (!cmds.length) { hide(); return false; }
+    prepare();
+    wrap.classList.remove("hidden"); document.querySelector("main").classList.add("drawing");
+    layout();
+    return true;
+  }
+  function hide() {
+    stop(); cmds = []; view = null;
+    wrap.classList.add("hidden"); wrap.classList.remove("big");
+    document.querySelector("main").classList.remove("drawing");
+  }
+  new ResizeObserver(() => { if (cmds.length && layout()) { redrawInk(inked); present(); } }).observe(box);
+  $("#drSkip").onclick = () => { if (cmds.length) { stop(); redrawInk(cmds.length); present(); } };
+  $("#drReplay").onclick = () => { if (cmds.length && !dbg) animateFrom(0); };
+  $("#drBig").onclick = () => wrap.classList.toggle("big");
+  addEventListener("keydown", e => { if (e.key === "Escape") wrap.classList.remove("big"); });
+
+  return {
+    // Run: animate; `keep` commands are already on screen (re-run after an input()).
+    play(list, keep = 0) { if (show(list)) animateFrom(keep <= cmds.length ? keep : 0); },
+    // Debug: load without drawing, then showStep() for each step.
+    load(list) { if (show(list)) { redrawInk(0); present(); } },
+    showStep(step, atEnd) {
+      if (!cmds.length) return;
+      stop();
+      let n = cmds.length;
+      if (!atEnd) { n = 0; while (n < cmds.length && cmds[n].s < step) n++; }
+      redrawInk(n); present();
+    },
+    inked: () => inked,
+    stop, hide,
+  };
+})();
+
 // ---------- run / debug ----------
 const newSeed = () => Math.floor(Math.random() * 2 ** 31);
 $("#btnRun").onclick = async () => {
   endDebug(); clearMarks(); saveCurrent(); cancelWait();
   const token = runToken, seed = newSeed(), answers = [];
+  let rerun = false;
   for (;;) {
     const r = await execute(false, seed, answers);
     if (!r || token !== runToken) return;
+    drawing.play(r.turtle, rerun ? drawing.inked() : 0);   // after an input(), carry on from what is drawn
+    rerun = true;
     if (r.needInput) {
       const v = await new Promise(res => showOutput(r.output, null, null, res));
       if (token !== runToken) return;
@@ -627,6 +1163,7 @@ async function startDebug(keepIdx, answers = []) {
   if (!r || token !== runToken) return;
   if (!r.steps.length) { endDebug(); showOutput(r.output, r.error); if (r.errorLine) markLine(r.errorLine, "cm-exc"); return; }
   dbg = { ...r, seed, answers, watchCount: watches.length };
+  drawing.load(r.turtle);
   $("#idle").classList.add("hidden"); $("#dbgpanel").classList.remove("hidden"); $("#varsec").classList.remove("hidden");
   const tl = $("#timeline"); tl.max = r.steps.length - 1;
   if (keepIdx != null) idx = Math.min(keepIdx, r.steps.length - 1);
@@ -673,6 +1210,7 @@ function render() {
   clearMarks();
   markLine(s.line, s.event === "exception" ? "cm-exc" : s.event === "return" ? "cm-ret" : "cm-cur");
   $("#timeline").value = idx;
+  drawing.showStep(idx, idx === last);
 
   let info;
   if (s.event === "line") info = `About to run <b>line ${s.line}</b> in <code>${esc(top.func)}</code>`;
