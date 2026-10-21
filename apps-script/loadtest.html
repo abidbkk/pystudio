@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <style>
+    body { font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; margin: 24px; color: #1c2230; max-width: 900px; }
+    h1 { font-size: 20px; margin: 0 0 4px; }
+    p { color: #667085; margin: 0 0 16px; }
+    label { display: inline-block; margin: 0 16px 8px 0; }
+    input { width: 64px; font: inherit; padding: 3px 6px; }
+    button { font: inherit; padding: 6px 14px; border-radius: 6px; border: 1px solid #c9d0da; background: #eef1f5; cursor: pointer; }
+    button.go { background: #2563eb; border-color: #2563eb; color: #fff; }
+    button:disabled { opacity: .5; cursor: default; }
+    table { border-collapse: collapse; margin: 16px 0; width: 100%; }
+    th, td { text-align: right; padding: 6px 10px; border-bottom: 1px solid #e3e7ed; }
+    th:first-child, td:first-child { text-align: left; }
+    #status { font-weight: 600; margin: 12px 0; }
+    #verdict { padding: 12px 14px; border-radius: 8px; margin-top: 12px; display: none; }
+    .good { background: #dcfce7; } .ok { background: #fef3c7; } .bad { background: #fee2e2; }
+    #errors { color: #b91c1c; font-size: 13px; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>PyStudio load test</h1>
+  <p>Pretends to be several students using PyStudio at the same time, using the real server.
+     Everything is written to a temporary <b>_loadtest</b> folder in your own files, which is deleted at the end.</p>
+
+  <div>
+    <label>Students <input id="nStudents" type="number" value="15" min="1" max="40"></label>
+    <label>Minutes <input id="minutes" type="number" value="3" min="1" max="10"></label>
+    <label>Save every (s) <input id="saveS" type="number" value="3" min="1"></label>
+    <label>Check for updates every (s) <input id="pollS" type="number" value="20" min="2"></label>
+    <label>Teacher watching every (s) <input id="watchS" type="number" value="4" min="2"></label>
+  </div>
+  <button id="start" class="go">Start test</button>
+  <button id="stop" disabled>Stop</button>
+
+  <div id="status">Not started.</div>
+  <table>
+    <thead><tr><th>Request</th><th>Count</th><th>Errors</th><th>Typical (median)</th><th>Slow (95%)</th><th>Slowest</th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <div>Requests at the same time: now <b id="inflight">0</b>, highest <b id="peak">0</b> (Apps Script allows about 30)</div>
+  <div id="verdict"></div>
+  <div id="errors"></div>
+
+  <script>
+    const $ = id => document.getElementById(id);
+    const KINDS = { save: "Save (student typing)", poll: "Check for updates (student)", watch: "Teacher watching a student" };
+    let stats, inflight = 0, peak = 0, running = false, timers = [], me = null, errorsSeen = new Set(), endAt = 0;
+
+    function call(fn, ...args) {
+      return new Promise((resolve, reject) => {
+        google.script.run.withSuccessHandler(resolve).withFailureHandler(reject)[fn](...args);
+      });
+    }
+    async function timed(kind, fn, ...args) {
+      const t = performance.now();
+      inflight++; peak = Math.max(peak, inflight);
+      try { const r = await call(fn, ...args); stats[kind].times.push(performance.now() - t); return r; }
+      catch (e) { stats[kind].errors++; stats[kind].times.push(performance.now() - t); errorsSeen.add(String(e.message || e)); return null; }
+      finally { inflight--; render(); }
+    }
+    const pct = (a, p) => { if (!a.length) return 0; const s = [...a].sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor(p * s.length))]; };
+    const sec = ms => (ms / 1000).toFixed(1) + " s";
+    function render() {
+      $("rows").innerHTML = Object.keys(KINDS).map(k => {
+        const s = stats[k], t = s.times;
+        return `<tr><td>${KINDS[k]}</td><td>${t.length}</td><td>${s.errors}</td><td>${t.length ? sec(pct(t, .5)) : "–"}</td><td>${t.length ? sec(pct(t, .95)) : "–"}</td><td>${t.length ? sec(Math.max(...t)) : "–"}</td></tr>`;
+      }).join("");
+      $("inflight").textContent = inflight; $("peak").textContent = peak;
+      $("errors").textContent = errorsSeen.size ? "Errors seen:\n" + [...errorsSeen].slice(0, 8).join("\n") : "";
+      if (running) $("status").textContent = `Running… ${Math.max(0, Math.ceil((endAt - Date.now()) / 1000))} s left`;
+    }
+    const every = (ms, f) => { const j = Math.random() * ms; timers.push(setTimeout(function tick() { if (!running) return; f(); timers.push(setTimeout(tick, ms * (0.8 + Math.random() * 0.4))); }, j)); };
+
+    $("start").onclick = async () => {
+      stats = { save: { times: [], errors: 0 }, poll: { times: [], errors: 0 }, watch: { times: [], errors: 0 } };
+      inflight = 0; peak = 0; errorsSeen = new Set(); timers = [];
+      $("verdict").style.display = "none";
+      $("start").disabled = true; $("stop").disabled = false;
+      $("status").textContent = "Signing in…";
+      me = await call("whoAmI");
+      await call("folderOp", me.email, "create", "_loadtest");   // once, before the pretend students start saving
+      const n = +$("nStudents").value, saveMs = $("saveS").value * 1000, pollMs = $("pollS").value * 1000, watchMs = $("watchS").value * 1000;
+      running = true; endAt = Date.now() + $("minutes").value * 60000;
+      for (let i = 1; i <= n; i++) {
+        const st = { id: null, n: 0, known: {} };
+        every(saveMs, async () => {
+          const code = `# load test student ${i}, save ${++st.n}\n` + "print('hello')\n".repeat(20);
+          const r = await timed("save", "syncFiles", me.email,
+            [{ key: "k", id: st.id, base: null, name: `student${i}.py`, folder: "_loadtest", content: code, bps: [] }], []);
+          if (r && r.saved && r.saved.k) st.id = r.saved.k.id;
+        });
+        every(pollMs, async () => {
+          const r = await timed("poll", "listFiles", me.email, st.known);
+          if (r) r.files.forEach(f => { st.known[f.id] = f.v; });
+        });
+      }
+      const watchKnown = {};
+      every(watchMs, async () => {
+        const r = await timed("watch", "listFiles", me.email, watchKnown);
+        if (r) r.files.forEach(f => { watchKnown[f.id] = f.v; });
+      });
+      const tick = setInterval(render, 1000);
+      timers.push(setTimeout(() => finish(tick), endAt - Date.now()));
+      $("stop").onclick = () => finish(tick);
+    };
+
+    async function finish(tick) {
+      if (!running) return;
+      running = false;
+      timers.forEach(clearTimeout); clearInterval(tick);
+      $("stop").disabled = true;
+      $("status").textContent = "Finishing the last requests…";
+      while (inflight > 0) await new Promise(r => setTimeout(r, 300));
+      render();
+      $("status").textContent = "Cleaning up the _loadtest folder…";
+      try { await call("folderOp", me.email, "delete", "_loadtest"); } catch (e) {}
+      $("status").textContent = "Finished.";
+      $("start").disabled = false;
+      const all = [].concat(stats.save.times, stats.poll.times, stats.watch.times);
+      const errs = stats.save.errors + stats.poll.errors + stats.watch.errors;
+      const slow = pct(stats.save.times, .95);
+      const v = $("verdict");
+      v.style.display = "block";
+      if (errs === 0 && slow < 4000 && peak < 25) { v.className = "good"; v.textContent = `Good: ${all.length} requests, no errors. 95% of saves finished within ${sec(slow)}.`; }
+      else if (errs <= all.length * 0.01 && slow < 8000) { v.className = "ok"; v.textContent = `OK but slowing down: ${errs} errors in ${all.length} requests, 95% of saves within ${sec(slow)}.`; }
+      else { v.className = "bad"; v.textContent = `Struggling: ${errs} errors in ${all.length} requests, 95% of saves within ${sec(slow)}. Send me these numbers.`; }
+    }
+  </script>
+</body>
+</html>

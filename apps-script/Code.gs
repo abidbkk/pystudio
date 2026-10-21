@@ -15,7 +15,12 @@ const PROPS = PropertiesService.getScriptProperties();
 
 // ---------------------------------------------------------------- web app
 
-function doGet() {
+function doGet(e) {
+  // <exec link>?page=loadtest opens the load-test page (teachers only, see loadtest.html)
+  if (e && e.parameter && e.parameter.page === 'loadtest') {
+    if (me_().role !== 'teacher') return HtmlService.createHtmlOutput('Teachers only.');
+    return HtmlService.createHtmlOutputFromFile('loadtest').setTitle('PyStudio load test');
+  }
   return HtmlService.createHtmlOutputFromFile('index')
     .setTitle('PyStudio')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
