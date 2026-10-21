@@ -224,6 +224,10 @@ function me_() {
  */
 function target_(me, target) {
   if (me.role === 'none') throw new Error('Your account is not on a class list yet. Ask your teacher to add you.');
+  if (/^loadtest:\d+$/.test(String(target || ''))) {      // pretend students for loadtest.html
+    if (me.role !== 'teacher') throw new Error('Teachers only.');
+    return String(target);
+  }
   const cls = classOf_(target);
   if (cls) {
     if (me.role !== 'teacher') throw new Error('Only teachers can change class files.');
@@ -266,7 +270,9 @@ function folderFor_(email) {
     if (again && again !== id) return DriveApp.getFolderById(again);
     const cls = classOf_(email);
     let folder;
-    if (cls) {
+    if (/^loadtest:\d+$/.test(email)) {
+      folder = childFolder_(rootFolder_(), '_loadtest').createFolder('student ' + email.split(':')[1]);
+    } else if (cls) {
       folder = childFolder_(rootFolder_(), cls).createFolder('_Class files (students can see these)');
     } else {
       const s = roster_().students[email];
@@ -302,6 +308,37 @@ function meta_(file) {
 function parseMeta_(description) {
   try { const m = JSON.parse(description || '{}'); return { bps: Array.isArray(m.bps) ? m.bps : [], v: +m.v || 0, by: m.by || '' }; }
   catch (e) { return { bps: [], v: 0, by: '' }; }
+}
+
+// ---------------------------------------------------------------- remembered facts
+// To keep requests fast the server remembers, for 5 minutes, a "changed" code per folder and
+// where each file lives. Changes made in PyStudio update these at once; changes made directly
+// in Google Drive are picked up when they expire (within about 5 minutes).
+
+const REMEMBER_S = 300;
+
+/** The folder's current "changed" code (a new one is made if none is remembered). */
+function folderToken_(folderId) {
+  const cache = CacheService.getScriptCache(), key = 'ft:' + folderId;
+  let t = cache.get(key);
+  if (!t) { t = Utilities.getUuid(); cache.put(key, t, REMEMBER_S); }
+  return t;
+}
+
+/** Call after anything in the folder changes, so the next check lists it again. */
+function folderChanged_(folderId) {
+  CacheService.getScriptCache().put('ft:' + folderId, Utilities.getUuid(), REMEMBER_S);
+}
+
+/** {root, dir, v, name} for a file: which person/class folder it belongs to, its subfolder, version and name. */
+function fileInfo_(id) {
+  const raw = CacheService.getScriptCache().get('fi:' + id);
+  try { return raw ? JSON.parse(raw) : null; } catch (e) { return null; }
+}
+function rememberFiles_(map) {   // id -> {root, dir, v, name}
+  const out = {};
+  Object.keys(map).forEach(id => { out['fi:' + id] = JSON.stringify(map[id]); });
+  if (Object.keys(out).length) CacheService.getScriptCache().putAll(out, REMEMBER_S);
 }
 
 /** The file `id` if it is in `folder` or one of its (one level deep) subfolders. */
@@ -351,14 +388,23 @@ function whoAmI() {
  * already has; content is only sent for files that are new or changed.
  * A student listing their own files also gets their classes' shared files (`classKnown` works like `known`).
  */
-function listFiles(target, known, classKnown) {
+function listFiles(target, known, classKnown, since, classSince) {
+  // `since` / `classSince[cls]` are the "changed" codes the page got last time: if the folder
+  // hasn't changed since, the answer is just { unchanged: true } without reading Drive.
   const me = me_();
   const email = target_(me, target);
-  const res = filesIn_(folderFor_(email), known || {});
+  const folder = folderFor_(email);
+  const token = folderToken_(folder.getId());          // read before listing (see folderChanged_)
+  const res = since && since === token ? { unchanged: true } : filesIn_(folder, known || {});
+  res.token = token;
   if (email === me.email && me.role === 'student') {
+    classSince = classSince || {};
     res.classes = roster_().students[me.email].classes.map(cls => {
-      const folder = classFolder_(cls);
-      return { cls, files: folder ? filesIn_(folder, classKnown || {}).files : [] };
+      const cf = classFolder_(cls);
+      if (!cf) return { cls, files: [] };
+      const t = folderToken_(cf.getId());
+      if (classSince[cls] && classSince[cls] === t) return { cls, unchanged: true, token: t };
+      return { cls, files: filesIn_(cf, classKnown || {}).files, token: t };
     });
   }
   return res;
@@ -366,8 +412,9 @@ function listFiles(target, known, classKnown) {
 
 /** Files in `folder` (folder: "") and in each of its subfolders (folder: subfolder name). */
 function filesIn_(folder, known) {
-  const out = [], folders = [];
+  const out = [], folders = [], seen = {}, rootId = folder.getId();
   const add = (dir, name) => {
+    const dirId = dir.getId();
     const it = dir.getFiles();
     while (it.hasNext()) {
       const f = it.next();
@@ -376,6 +423,7 @@ function filesIn_(folder, known) {
       const e = { id: f.getId(), name: f.getName(), folder: name, v: m.v, by: m.by };
       if (known[e.id] !== m.v) { e.content = f.getBlob().getDataAsString('UTF-8'); e.bps = m.bps; }
       out.push(e);
+      seen[e.id] = { root: rootId, dir: dirId, v: m.v, name: e.name };
     }
   };
   add(folder, '');
@@ -386,13 +434,15 @@ function filesIn_(folder, known) {
     folders.push(d.getName());
     add(d, d.getName());
   }
+  rememberFiles_(seen);
   return { files: out, folders };
 }
 
 /** Teachers only: copies a file into a class's shared files, replacing one with the same name. */
 function shareToClass(cls, name, content, bps, inFolder) {
   const me = me_();
-  const folder = subfolder_(folderFor_(target_(me, 'class:' + cls)), inFolder || '', true);
+  const classRoot = folderFor_(target_(me, 'class:' + cls));
+  const folder = subfolder_(classRoot, inFolder || '', true);
   name = cleanName_(name);
   content = String(content == null ? '' : content);
   if (content.length > MAX_FILE_CHARS) throw new Error(`${name} is too large to share.`);
@@ -404,6 +454,7 @@ function shareToClass(cls, name, content, bps, inFolder) {
   if (f) { v = meta_(f).v + 1; f.setContent(content); }
   else f = folder.createFile(name, content, MimeType.PLAIN_TEXT);
   f.setDescription(JSON.stringify({ bps, v, by: me.email }));
+  folderChanged_(classRoot.getId());
   return { id: f.getId(), v, replaced: v > 1 };
 }
 
@@ -417,35 +468,52 @@ function syncFiles(target, upserts, deletes) {
   const me = me_();
   const email = target_(me, target);
   const folder = folderFor_(email);
-  const saved = {}, conflicts = [];
+  const saved = {}, conflicts = [], remembered = {}, rootId = folder.getId();
   (upserts || []).slice(0, MAX_FILES).forEach(u => {
     const content = String(u.content == null ? '' : u.content);
     if (content.length > MAX_FILE_CHARS) throw new Error(`${u.name} is too large to save.`);
     const name = cleanName_(u.name);
     const bps = Array.isArray(u.bps) ? u.bps.filter(n => typeof n === 'number').slice(0, 500) : [];
     const dir = subfolder_(folder, u.folder, true);
-    let f = u.id ? ownFile_(folder, u.id) : null;
+    const dirId = u.folder ? dir.getId() : rootId;
+    // Already known to belong to this person/class? Then skip the parent-folder checks.
+    const info = u.id ? fileInfo_(u.id) : null;
+    const knownHere = !!info && info.root === rootId;
+    let f = null;
+    if (u.id && knownHere) {
+      try { f = DriveApp.getFileById(u.id); if (f.isTrashed()) f = null; } catch (e) { f = null; }
+    } else if (u.id) {
+      f = ownFile_(folder, u.id);
+    }
     let v = 1;
     if (f) {
-      const m = meta_(f);
-      if (u.base != null && m.v !== u.base) {
-        conflicts.push({ key: u.key, id: f.getId(), name: f.getName(), content: f.getBlob().getDataAsString('UTF-8'), bps: m.bps, v: m.v, by: m.by });
-        return;
+      if (u.base != null) {
+        const m = meta_(f);
+        if (m.v !== u.base) {
+          conflicts.push({ key: u.key, id: f.getId(), name: f.getName(), content: f.getBlob().getDataAsString('UTF-8'), bps: m.bps, v: m.v, by: m.by });
+          return;
+        }
       }
-      v = m.v + 1;
+      v = (knownHere ? info.v : meta_(f).v) + 1;
       f.setContent(content);
-      if (f.getName() !== name) f.setName(name);
-      let here = false;
-      const ps = f.getParents();
-      while (ps.hasNext()) if (ps.next().getId() === dir.getId()) here = true;
-      if (!here) f.moveTo(dir);
+      if (!(knownHere && info.name === name) && f.getName() !== name) f.setName(name);
+      if (!(knownHere && info.dir === dirId)) {
+        let here = false;
+        const ps = f.getParents();
+        while (ps.hasNext()) if (ps.next().getId() === dirId) here = true;
+        if (!here) f.moveTo(dir);
+      }
     } else {
       f = dir.createFile(name, content, MimeType.PLAIN_TEXT);
     }
     f.setDescription(JSON.stringify({ bps, v, by: me.email }));
-    saved[u.key] = { id: f.getId(), v };
+    const fid = u.id && f ? (knownHere ? u.id : f.getId()) : f.getId();
+    saved[u.key] = { id: fid, v };
+    remembered[fid] = { root: rootId, dir: dirId, v, name };
   });
   (deletes || []).forEach(id => { const f = ownFile_(folder, id); if (f) f.setTrashed(true); });
+  rememberFiles_(remembered);
+  if (Object.keys(saved).length || (deletes || []).length) folderChanged_(rootId);
   touch_(me);
   return { saved, conflicts };
 }
@@ -454,6 +522,7 @@ function syncFiles(target, upserts, deletes) {
 function folderOp(target, op, name, newName) {
   const me = me_();
   const folder = folderFor_(target_(me, target));
+  folderChanged_(folder.getId());
   name = cleanFolder_(name);
   if (!name) throw new Error('Folder names cannot be empty.');
   if (op === 'create') { subfolder_(folder, name, true); return { ok: true }; }
@@ -468,6 +537,15 @@ function folderOp(target, op, name, newName) {
   }
   if (op === 'delete') { d.setTrashed(true); return { ok: true }; }
   throw new Error('Unknown folder action.');
+}
+
+/** Teachers only: removes the load-test folders (to the Drive trash). */
+function loadTestCleanup() {
+  if (me_().role !== 'teacher') throw new Error('Teachers only.');
+  const it = rootFolder_().getFoldersByName('_loadtest');
+  while (it.hasNext()) it.next().setTrashed(true);
+  Object.keys(PROPS.getProperties()).filter(k => k.indexOf('f:loadtest:') === 0).forEach(k => PROPS.deleteProperty(k));
+  return true;
 }
 
 /** Teachers only: classes and their students. */

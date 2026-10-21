@@ -1938,10 +1938,15 @@ cm.getWrapperElement().addEventListener("keydown", e => {
 function mergeClassFiles(groups) {
   if (!groups) return;
   const old = new Map(classFiles.map(f => [f.id, f]));
-  classFiles = groups.flatMap(g => g.files.map(x => {
-    const o = old.get(x.id);
-    return { cls: g.cls, id: x.id, name: x.name, folder: x.folder || "", v: x.v, code: x.content ?? o?.code ?? "", bps: x.bps ?? o?.bps ?? [] };
-  }));
+  if (view) view.ctokens = view.ctokens || {};
+  classFiles = groups.flatMap(g => {
+    if (view && g.token) view.ctokens[g.cls] = g.token;
+    if (g.unchanged) return classFiles.filter(f => f.cls === g.cls);   // nothing new for this class
+    return g.files.map(x => {
+      const o = old.get(x.id);
+      return { cls: g.cls, id: x.id, name: x.name, folder: x.folder || "", v: x.v, code: x.content ?? o?.code ?? "", bps: x.bps ?? o?.bps ?? [] };
+    });
+  });
   if (viewingClassFile) {
     const now = classFiles.find(f => f.id === viewingClassFile.id);
     if (now && now.v > viewingClassFile.v && !dbg) {
@@ -2856,12 +2861,16 @@ async function poll() {
   for (const f of Object.values(files)) if (f.id) known[f.id] = f.v;
   for (const f of classFiles) classKnown[f.id] = f.v;
   try {
-    const r = await bridge.call("listFiles", view.target, known, classKnown);
+    // The "changed" codes let the server answer "unchanged" without reading Drive.
+    const r = await bridge.call("listFiles", view.target, known, classKnown, view.token || null, view.ctokens || {});
     if (ctx === ctxN) mergeClassFiles(r.classes);
     if (ctx === ctxN && !inflight && !flushT && !folderBusy && !renaming) {
-      const before = allFolders().join("/");
-      if (r.folders) folderSet = new Set(r.folders);
-      mergeRemote(r.files, before !== allFolders().join("/"));
+      if (!r.unchanged) {
+        const before = allFolders().join("/");
+        if (r.folders) folderSet = new Set(r.folders);
+        mergeRemote(r.files, before !== allFolders().join("/"));
+      }
+      if (r.token) view.token = r.token;   // only once this listing has been taken in
     }
   } catch (e) { console.warn("Refresh failed", e); }
   if (ctx === ctxN) schedulePoll();
@@ -2941,7 +2950,7 @@ function useLocal() { view = null; synced = new Map(); folderSet = new Set(store
 // File lists already opened this visit, so going back to them is instant.
 const viewCache = new Map();
 function rememberView() {
-  if (mode === "cloud" && view && files) viewCache.set(view.target, { files, synced, folders: folderSet, classFiles });
+  if (mode === "cloud" && view && files) viewCache.set(view.target, { files, synced, folders: folderSet, classFiles, token: view.token, ctokens: view.ctokens });
 }
 
 async function openView(target, label, isMe) {
@@ -2954,7 +2963,7 @@ async function openView(target, label, isMe) {
   if (cached) {
     synced = cached.synced;
     folderSet = cached.folders;
-    view = { target, label, isMe, isClass: target.startsWith("class:") };
+    view = { target, label, isMe, isClass: target.startsWith("class:"), token: cached.token, ctokens: cached.ctokens };
     classFiles = cached.classFiles || []; viewingClassFile = null;
     switchFiles("cloud", cached.files);
     poll();                              // fetch anything that changed, in the background
@@ -2982,7 +2991,7 @@ async function openView(target, label, isMe) {
   }
   synced = s;
   folderSet = new Set(r.folders || []);
-  view = { target, label, isMe, isClass: target.startsWith("class:") };
+  view = { target, label, isMe, isClass: target.startsWith("class:"), token: r.token || null, ctokens: {} };
   classFiles = []; viewingClassFile = null;
   mergeClassFiles(r.classes);
   if (!r.files.length) Object.assign(f, isMe ? sampleFiles() : { "untitled.py": { code: "", bps: [], placeholder: true } });

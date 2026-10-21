@@ -23,13 +23,14 @@
 </head>
 <body>
   <h1>PyStudio load test</h1>
-  <p>Pretends to be several students using PyStudio at the same time, using the real server.
-     Everything is written to a temporary <b>_loadtest</b> folder in your own files, which is deleted at the end.</p>
+  <p>Pretends to be several students using PyStudio at the same time, using the real server, the way PyStudio does:
+     each pretend student has their own folder, sends one save at a time while "typing" (with pauses), and checks for
+     updates every 20 seconds. Everything goes into a temporary <b>_loadtest</b> folder in <i>PyStudio files</i>, which is deleted at the end.</p>
 
   <div>
     <label>Students <input id="nStudents" type="number" value="15" min="1" max="40"></label>
     <label>Minutes <input id="minutes" type="number" value="3" min="1" max="10"></label>
-    <label>Save every (s) <input id="saveS" type="number" value="3" min="1"></label>
+    <label>Save every (s, on average) <input id="saveS" type="number" value="6" min="2"></label>
     <label>Check for updates every (s) <input id="pollS" type="number" value="20" min="2"></label>
     <label>Teacher watching every (s) <input id="watchS" type="number" value="4" min="2"></label>
   </div>
@@ -82,27 +83,30 @@
       $("start").disabled = true; $("stop").disabled = false;
       $("status").textContent = "Signing in…";
       me = await call("whoAmI");
-      await call("folderOp", me.email, "create", "_loadtest");   // once, before the pretend students start saving
       const n = +$("nStudents").value, saveMs = $("saveS").value * 1000, pollMs = $("pollS").value * 1000, watchMs = $("watchS").value * 1000;
       running = true; endAt = Date.now() + $("minutes").value * 60000;
+      // Like PyStudio: one save at a time per student (the next waits for the last), and update
+      // checks that send the folder's "changed" code so the server can answer "unchanged".
+      const check = async (kind, target, st) => {
+        const r = await timed(kind, "listFiles", target, st.known, {}, st.token || null, {});
+        if (r) { if (!r.unchanged) r.files.forEach(f => { st.known[f.id] = f.v; }); st.token = r.token; }
+      };
       for (let i = 1; i <= n; i++) {
-        const st = { id: null, n: 0, known: {} };
+        const st = { id: null, n: 0, known: {}, token: null, saving: false };
+        const target = "loadtest:" + i;
         every(saveMs, async () => {
+          if (st.saving) return;                       // still saving the last change
+          st.saving = true;
           const code = `# load test student ${i}, save ${++st.n}\n` + "print('hello')\n".repeat(20);
-          const r = await timed("save", "syncFiles", me.email,
-            [{ key: "k", id: st.id, base: null, name: `student${i}.py`, folder: "_loadtest", content: code, bps: [] }], []);
+          const r = await timed("save", "syncFiles", target,
+            [{ key: "k", id: st.id, base: null, name: "hello.py", folder: "", content: code, bps: [] }], []);
           if (r && r.saved && r.saved.k) st.id = r.saved.k.id;
+          st.saving = false;
         });
-        every(pollMs, async () => {
-          const r = await timed("poll", "listFiles", me.email, st.known);
-          if (r) r.files.forEach(f => { st.known[f.id] = f.v; });
-        });
+        every(pollMs, () => check("poll", target, st));
       }
-      const watchKnown = {};
-      every(watchMs, async () => {
-        const r = await timed("watch", "listFiles", me.email, watchKnown);
-        if (r) r.files.forEach(f => { watchKnown[f.id] = f.v; });
-      });
+      const watcher = { known: {}, token: null };
+      every(watchMs, () => check("watch", "loadtest:1", watcher));
       const tick = setInterval(render, 1000);
       timers.push(setTimeout(() => finish(tick), endAt - Date.now()));
       $("stop").onclick = () => finish(tick);
@@ -117,7 +121,7 @@
       while (inflight > 0) await new Promise(r => setTimeout(r, 300));
       render();
       $("status").textContent = "Cleaning up the _loadtest folder…";
-      try { await call("folderOp", me.email, "delete", "_loadtest"); } catch (e) {}
+      try { await call("loadTestCleanup"); } catch (e) {}
       $("status").textContent = "Finished.";
       $("start").disabled = false;
       const all = [].concat(stats.save.times, stats.poll.times, stats.watch.times);
