@@ -89,7 +89,8 @@ In the **Students** tab, add one row per student:
 - **Add files:** in the **Classes** panel, pick a class and click **📁 Class files**. Add files there with
   **+ New** or **Upload**, or edit them like any other file.
 - **Share an existing file:** open one of **My files** and click **📤 Share to class**, then choose the class.
-  This copies the file into that class's Class files. If a file with the same name is already there, it's updated.
+  This copies the file into that class's Class files, not into a folder, even if it's in one of your folders.
+  If a file with the same name is already there, it's updated. To group a class's files, open its 📁 Class files and use + Folder and Move.
 - **What students see:** a **Class files** section below their own files. They can open, run and debug them.
   As soon as they type, the file becomes **their own copy** in My files. Your original is never changed.
 - **Updating:** when you edit a class file, students see the new version within about 20 seconds. New students in the class get the files too.

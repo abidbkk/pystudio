@@ -3033,11 +3033,12 @@ $("#shareSel").onchange = async () => {
   sel.classList.add("hidden");
   if (!cls) return;
   saveCurrent();
-  const name = current, f = files[name], [folder, base] = splitPath(name);
+  // Shared files go straight into the class's Class files (not into a folder named after yours).
+  const name = current, f = files[name], base = splitPath(name)[1];
   banner(`Sharing ${base} with ${cls}…`, 10000);
   try {
-    const r = await bridge.call("shareToClass", cls, base, f.code, f.bps || [], folder);
-    banner(`${r.replaced ? "Updated" : "Shared"} ${name} in ${cls}'s Class files.`, 5000);
+    const r = await bridge.call("shareToClass", cls, base, f.code, f.bps || [], "");
+    banner(`${r.replaced ? "Updated" : "Shared"} ${base} in ${cls}'s Class files.`, 5000);
   } catch (e) { banner("Could not share: " + e.message, 6000); }
 };
 $("#btnClsRefresh").onclick = loadClasses;
