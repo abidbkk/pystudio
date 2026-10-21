@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>PyStudio</title>
+<script>try { if (localStorage.getItem("pystudio.look") === '"light"') document.documentElement.dataset.look = "light"; } catch (e) {}</script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/material-darker.min.css">
 <style>
@@ -49,8 +50,8 @@ header button.primary{color:var(--accent-text)}
 header button.danger{color:var(--danger)}
 header #fname,header #status,header #acct{color:var(--hdr-muted)}
 header #savestate{color:var(--hdr-muted)}
-header #savestate.ok{color:#4ade80}
-header #savestate.warn{color:#fbbf24}
+header #savestate.ok{color:var(--hdr-ok,#4ade80)}
+header #savestate.warn{color:var(--hdr-warn,#fbbf24)}
 header #acct{border-right-color:rgba(255,255,255,.2)}
 header h1{font-size:16px;margin:0 12px 0 0;font-weight:650}
 #fname{font-family:var(--mono);color:var(--muted)}
@@ -84,8 +85,13 @@ main.pseudo #pseudo{display:flex}
 .perr a{color:var(--accent)}
 .cm-map{background:#bfdbfe}
 #btnPseudo.on{background:var(--cur);border-color:#d4b106}
+/* "Light" look (the original): white header, sidebar and panels. Chosen with the 🎨 button. */
+:root[data-look="light"]{--hdr:var(--panel); --hdr-text:var(--text); --hdr-muted:var(--muted); --hdr-line:var(--border);
+  --hdr-ok:var(--ok); --hdr-warn:#d97706; --side:var(--panel); --out:var(--panel); --dbg:var(--panel); --band:transparent; --btnbg:var(--btn)}
+:root[data-look="light"] .ptitle{border-bottom-color:transparent}
+:root[data-look="light"] header #acct{border-right-color:var(--border)}
 /* dark sidebar: its own light-on-dark colours for everything inside it */
-aside#files{--text:#e2e8f0; --muted:#94a3b8; --border:#3a4a63; --hover:rgba(255,255,255,.08); --band:rgba(0,0,0,.18);
+:root:not([data-look="light"]) aside#files{--text:#e2e8f0; --muted:#94a3b8; --border:#3a4a63; --hover:rgba(255,255,255,.08); --band:rgba(0,0,0,.18);
   --btnbg:#33425b; --btn:#33425b; --btn-hover:#3e5070; --panel:#1f2a3c; --cur:#5a4b12; --danger:#f87171; color:var(--text)}
 aside#files{grid-area:files;background:var(--side);border-right:1px solid var(--border);display:flex;flex-direction:column;min-height:0}
 .ptitle{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);padding:6px 12px;margin-bottom:4px;background:var(--band);border-bottom:1px solid var(--border);font-weight:600;display:flex;align-items:center;justify-content:space-between}
@@ -209,6 +215,7 @@ tr.chg td{background:var(--changed)}
   <button id="btnDebug" title="Debug (F5). Tip: click left of a line number to add a breakpoint where the program should pause." disabled>🐞 Debug</button>
   <button id="btnStop" class="danger" title="Stop the program" disabled>■ Stop</button>
   <button id="btnPseudo" title="Show this code as Cambridge IGCSE pseudocode">📝 Pseudocode</button>
+  <button id="btnLook" title="Switch colours: dark frame / light">🎨</button>
   <span id="status" class="busy">Loading Python…</span>
 </header>
 <main>
@@ -3137,6 +3144,14 @@ async function initAccounts() {
   }
   await openView(me.email, me.name, true);
 }
+// 🎨 switches between the dark frame (default) and the original light look; remembered per browser
+$("#btnLook").onclick = () => {
+  const light = document.documentElement.dataset.look !== "light";
+  if (light) document.documentElement.dataset.look = "light"; else delete document.documentElement.dataset.look;
+  store.set("pystudio.look", light ? "light" : "dark");
+  banner(light ? "Light colours" : "Dark frame colours", 1500);
+};
+
 renderWatches();
 startWorker();
 pseudo.init();
