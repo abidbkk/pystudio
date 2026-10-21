@@ -14,21 +14,24 @@
   --cur:#fff1a8; --ret:#d3f5dd; --exc:#fde0e0; --changed:#fff1a8; --bp:#e5484d;
   --ok:#16a34a; --mono:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;
   /* zones: each area of the screen has its own soft shade; the code stays white */
-  --hdr:#e9edf2; --side:#f1f4f8; --out:#f7f8fa; --dbg:#eef3f9; --band:rgba(15,23,42,.05); --btnbg:#ffffff; --hover:rgba(15,23,42,.06);
+  --hdr:#1e293b; --hdr-text:#f1f5f9; --hdr-muted:#cbd5e1; --hdr-line:#0f172a;
+  --side:#eef1f5; --out:#f7f8fa; --dbg:#f4f6f9; --band:rgba(15,23,42,.05); --btnbg:#ffffff; --hover:rgba(15,23,42,.06);
 }
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
     --bg:#15171c; --panel:#1d2027; --border:#2e333d; --text:#e6e8ec; --muted:#9aa3b2;
     --accent:#3b82f6; --accent-hover:#60a5fa; --btn:#2a2f39; --btn-hover:#353b47; --danger:#f87171;
     --cur:#5a4b12; --ret:#15452a; --exc:#5a1f1f; --changed:#5a4b12; --bp:#f0595e; --ok:#4ade80;
-    --hdr:#15181d; --side:#181b21; --out:#1a1d23; --dbg:#1a1e26; --band:rgba(255,255,255,.04); --btnbg:#262a33; --hover:rgba(255,255,255,.06);
+    --hdr:#0b0d11; --hdr-text:#f1f5f9; --hdr-muted:#9aa3b2; --hdr-line:#000;
+    --side:#181b21; --out:#1a1d23; --dbg:#1b1e24; --band:rgba(255,255,255,.04); --btnbg:#262a33; --hover:rgba(255,255,255,.06);
   }
 }
 :root[data-theme="dark"]{
   --bg:#15171c; --panel:#1d2027; --border:#2e333d; --text:#e6e8ec; --muted:#9aa3b2;
   --accent:#3b82f6; --accent-hover:#60a5fa; --btn:#2a2f39; --btn-hover:#353b47; --danger:#f87171;
   --cur:#5a4b12; --ret:#15452a; --exc:#5a1f1f; --changed:#5a4b12; --bp:#f0595e; --ok:#4ade80;
-  --hdr:#15181d; --side:#181b21; --out:#1a1d23; --dbg:#1a1e26; --band:rgba(255,255,255,.04); --btnbg:#262a33; --hover:rgba(255,255,255,.06);
+  --hdr:#0b0d11; --hdr-text:#f1f5f9; --hdr-muted:#9aa3b2; --hdr-line:#000;
+  --side:#181b21; --out:#1a1d23; --dbg:#1b1e24; --band:rgba(255,255,255,.04); --btnbg:#262a33; --hover:rgba(255,255,255,.06);
 }
 *{box-sizing:border-box}
 html,body{height:100%;margin:0}
@@ -40,7 +43,15 @@ button.primary{background:var(--accent);border-color:var(--accent);color:var(--a
 button.primary:hover:not(:disabled){background:var(--accent-hover)}
 button.danger{color:var(--danger)}
 input,textarea{font:inherit;color:var(--text);background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:5px 8px}
-header{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--hdr);border-bottom:1px solid var(--border);flex-wrap:wrap}
+header{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--hdr);color:var(--hdr-text);border-bottom:1px solid var(--hdr-line);flex-wrap:wrap}
+header button{color:var(--text)}
+header button.primary{color:var(--accent-text)}
+header button.danger{color:var(--danger)}
+header #fname,header #status,header #acct{color:var(--hdr-muted)}
+header #savestate{color:var(--hdr-muted)}
+header #savestate.ok{color:#4ade80}
+header #savestate.warn{color:#fbbf24}
+header #acct{border-right-color:rgba(255,255,255,.2)}
 header h1{font-size:16px;margin:0 12px 0 0;font-weight:650}
 #fname{font-family:var(--mono);color:var(--muted)}
 #savestate{font-size:12px;color:var(--muted);margin-right:auto}
