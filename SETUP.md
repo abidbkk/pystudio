@@ -95,6 +95,14 @@ In the **Students** tab, add one row per student:
 - **Updating:** when you edit a class file, students see the new version within about 20 seconds. New students in the class get the files too.
 - **In Drive:** the files are stored in *PyStudio files › (class) › _Class files (students can see these)*.
 
+## Optional: faster file lists
+Add Google's **Drive API** service so the server lists a whole folder in two requests instead of reading files one by one:
+1. In the Apps Script editor's left panel, click **+** next to **Services**, choose **Drive API**, and click **Add**.
+2. Make sure `Code.gs` is the latest version from [`apps-script/Code.gs`](apps-script/Code.gs), then
+   **Deploy → Manage deployments → ✏️ → New version → Deploy**.
+
+Without it, everything still works the same, just a little slower the first time each file list is opened.
+
 ## Good to know
 - **Shared computers:** PyStudio uses whichever Google account the browser is signed in to.
   Students should sign out of Google at the end of the lesson.

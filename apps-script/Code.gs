@@ -291,7 +291,11 @@ function touch_(me) {
 // ---------------------------------------------------------------- files
 
 function meta_(file) {
-  try { const m = JSON.parse(file.getDescription() || '{}'); return { bps: Array.isArray(m.bps) ? m.bps : [], v: +m.v || 0, by: m.by || '' }; }
+  return parseMeta_(file.getDescription());
+}
+
+function parseMeta_(description) {
+  try { const m = JSON.parse(description || '{}'); return { bps: Array.isArray(m.bps) ? m.bps : [], v: +m.v || 0, by: m.by || '' }; }
   catch (e) { return { bps: [], v: 0, by: '' }; }
 }
 
@@ -357,6 +361,47 @@ function listFiles(target, known, classKnown) {
 
 /** Files in `folder` (folder: "") and in each of its subfolders (folder: subfolder name). */
 function filesIn_(folder, known) {
+  // Faster when the "Drive API" service is added: two requests list everything at once.
+  if (typeof Drive !== 'undefined') {
+    try { return filesInFast_(folder, known); }
+    catch (e) { console.warn('Fast listing failed, using DriveApp instead: ' + e); }
+  }
+  return filesInSlow_(folder, known);
+}
+
+const FOLDER_MIME = 'application/vnd.google-apps.folder';
+
+function driveList_(q) {
+  let out = [], token;
+  do {
+    const r = Drive.Files.list({ q, pageSize: 1000, pageToken: token,
+      fields: 'nextPageToken, files(id, name, description, mimeType, parents)' });
+    out = out.concat(r.files || []);
+    token = r.nextPageToken;
+  } while (token);
+  return out;
+}
+
+function filesInFast_(folder, known) {
+  const top = driveList_(`'${folder.getId()}' in parents and trashed = false`);
+  const subs = top.filter(f => f.mimeType === FOLDER_MIME);
+  const subName = {};
+  subs.forEach(d => { subName[d.id] = d.name; });
+  const all = top.filter(f => f.mimeType !== FOLDER_MIME).map(f => [f, '']);
+  if (subs.length) {
+    const q = '(' + subs.map(d => `'${d.id}' in parents`).join(' or ') + `) and trashed = false and mimeType != '${FOLDER_MIME}'`;
+    driveList_(q).forEach(f => all.push([f, subName[(f.parents || []).filter(id => subName[id])[0]] || '']));
+  }
+  const files = all.map(([f, inFolder]) => {
+    const m = parseMeta_(f.description);
+    const e = { id: f.id, name: f.name, folder: inFolder, v: m.v, by: m.by };
+    if (known[e.id] !== m.v) { e.content = DriveApp.getFileById(f.id).getBlob().getDataAsString('UTF-8'); e.bps = m.bps; }
+    return e;
+  });
+  return { files, folders: subs.map(d => d.name) };
+}
+
+function filesInSlow_(folder, known) {
   const out = [], folders = [];
   const add = (dir, name) => {
     const it = dir.getFiles();

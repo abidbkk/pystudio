@@ -1825,9 +1825,11 @@ cm.on("change", () => {
 function saveCurrent() {
   if (viewingClassFile) { viewingClassFile.bps = getBps(); return; }
   if (!files || !files[current]) return;
-  files[current] = { ...files[current], code: cm.getValue(), bps: getBps() };
-  persist();
+  const code = cm.getValue(), bps = getBps(), f = files[current];
   store.set(curKey(), current);
+  if (f.code === code && JSON.stringify(f.bps || []) === JSON.stringify(bps)) return;   // nothing to save
+  files[current] = { ...f, code, bps };
+  persist();
 }
 function loadFile(name) {
   viewingClassFile = null;
@@ -2473,7 +2475,12 @@ const pseudo = (() => {
     if (!pyReady) { setTimeout(refresh, 500); return; }
     show(await request(cm.getValue()));
   }
-  function schedule() { if (open) { clearTimeout(timer); timer = setTimeout(refresh, 500); } }
+  function schedule() {
+    if (!open) return;
+    clearTimeout(timer);
+    if (loading) refresh();               // another file was opened: show it straight away
+    else timer = setTimeout(refresh, 500);
+  }
   // Python line under the cursor -> highlight the matching pseudocode lines
   function follow() {
     if (!open) return;
@@ -2876,6 +2883,10 @@ function mergeRemote(list, foldersChanged) {
   for (const [name, f] of Object.entries(files)) {
     if (f.id && !ids.has(f.id) && synced.get(f.id) === sigOf(name, f)) { delete files[name]; synced.delete(f.id); changed = true; }
   }
+  // drop the empty starter file once real files have arrived
+  for (const [name, f] of Object.entries(files)) {
+    if (f.placeholder && !f.id && !f.code && Object.keys(files).length > 1) { delete files[name]; changed = true; }
+  }
   if (!changed) { if (foldersChanged) renderFiles(); return; }
   if (!Object.keys(files).length) files["untitled.py"] = { code: "", bps: [], placeholder: true };
   if (!files[current]) loadFile(Object.keys(files).sort()[0]); else renderFiles();
@@ -2910,11 +2921,28 @@ function switchFiles(newMode, f) {
 }
 function useLocal() { view = null; synced = new Map(); folderSet = new Set(store.get("pystudio.folders", [])); switchFiles("local", localFiles()); }
 
+// File lists already opened this visit, so going back to them is instant.
+const viewCache = new Map();
+function rememberView() {
+  if (mode === "cloud" && view && files) viewCache.set(view.target, { files, synced, folders: folderSet, classFiles });
+}
+
 async function openView(target, label, isMe) {
   saveCurrent();
   if (mode === "cloud" && !(await saveNow())) { banner("Could not save your changes — check your connection and try again.", 6000); return; }
+  rememberView();
   const ctx = ++ctxN;
   clearTimeout(pollT);
+  const cached = viewCache.get(target);
+  if (cached) {
+    synced = cached.synced;
+    folderSet = cached.folders;
+    view = { target, label, isMe, isClass: target.startsWith("class:") };
+    classFiles = cached.classFiles || []; viewingClassFile = null;
+    switchFiles("cloud", cached.files);
+    poll();                              // fetch anything that changed, in the background
+    return;
+  }
   setSaveState("opening", isMe ? "Opening your files…" : target.startsWith("class:") ? `Opening ${label}…` : `Opening ${firstName(label)}'s files…`);
   let r;
   try { r = await bridge.call("listFiles", target, {}); }
