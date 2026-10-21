@@ -116,8 +116,10 @@ aside#files{grid-area:files;background:var(--panel);border-right:1px solid var(-
 #filelist li.drop,#filesTitle.drop{background:var(--cur)}
 #moveSel{font:inherit;font-size:12px;color:var(--text);background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:4px}
 #filelist input{width:100%;font-family:var(--mono);font-size:13px;padding:3px 5px}
-.filebtns{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:8px}
-.filebtns button{font-size:12px;padding:4px 6px}
+.filebtns{padding:0 6px 6px;display:flex;flex-direction:column;gap:4px}
+.iconbar{display:flex;gap:2px}
+.iconbar button{flex:1 1 0;min-width:0;padding:3px 0;font-size:13px;line-height:1.2}
+.iconbar button.danger.armed{background:var(--danger);border-color:var(--danger);color:#fff}
 #editor{grid-area:editor;min-height:0;position:relative}
 .CodeMirror{height:100%;font-family:var(--mono);font-size:14px}
 .cm-s-default.CodeMirror{background:var(--panel)}
@@ -169,7 +171,7 @@ tr.chg td{background:var(--changed)}
   #pseudo{border-left:0;border-top:1px solid var(--border);max-height:50vh}
   aside#files{border-right:0;border-bottom:1px solid var(--border)}
   #filelist{display:flex;flex-wrap:wrap;gap:4px;max-height:90px}
-  .filebtns{grid-template-columns:repeat(5,auto);justify-content:start}
+  .iconbar button{flex:0 0 38px}
   #io{grid-template-columns:1fr;min-height:260px}
   main.drawing{grid-template-rows:auto 55vh auto auto}
   main.drawing #io{grid-template-columns:1fr}
@@ -198,22 +200,24 @@ tr.chg td{background:var(--changed)}
       <button id="btnMine">← My files</button>
     </div>
     <div class="ptitle" id="filesTitle">My files</div>
+    <div class="filebtns">
+      <div class="iconbar">
+        <button id="fNew" title="New file (in the open folder)">📄</button>
+        <button id="fFolder" title="New folder">📁</button>
+        <button id="fRename" title="Rename this file">✎</button>
+        <button id="fMove" title="Move this file into a folder (or drag it)">↪</button>
+        <button id="fUpload" title="Upload .py files">⬆</button>
+        <button id="fDownload" title="Download this file">⬇</button>
+        <button id="fDelete" class="danger" title="Delete this file">🗑</button>
+        <button id="fShare" class="hidden" title="Share this file to a class">📤</button>
+      </div>
+      <select id="moveSel" class="hidden"></select>
+      <select id="shareSel" class="hidden"></select>
+    </div>
     <ul id="filelist"></ul>
     <div id="classsec" class="hidden">
       <div class="ptitle">Class files</div>
       <ul id="classlist"></ul>
-    </div>
-    <div class="filebtns">
-      <button id="fNew" title="New file in the open folder">+ New</button>
-      <button id="fFolder" title="Make a new folder">+ Folder</button>
-      <button id="fRename">Rename</button>
-      <button id="fMove" title="Move this file into a folder (or drag it)">Move</button>
-      <button id="fUpload">Upload</button>
-      <button id="fDownload">Download</button>
-      <button id="fDelete" class="danger" style="grid-column:span 2">Delete</button>
-      <select id="moveSel" class="hidden" style="grid-column:span 2"></select>
-      <button id="fShare" class="hidden" style="grid-column:span 2" title="Copy this file into a class's shared Class files">📤 Share to class</button>
-      <select id="shareSel" class="hidden" style="grid-column:span 2"></select>
     </div>
     <input type="file" id="upload" accept=".py,.txt" multiple class="hidden">
     <div id="teach" class="hidden">
@@ -2053,8 +2057,13 @@ let delArmed = null;
 $("#fDelete").onclick = () => {
   if (viewingClassFile) return banner("Class files come from your teacher and can't be deleted.", 4000);
   const b = $("#fDelete");
-  if (!delArmed) { b.textContent = `Really delete ${splitPath(current)[1]}?`; delArmed = setTimeout(() => { delArmed = null; b.textContent = "Delete"; }, 3000); return; }
-  clearTimeout(delArmed); delArmed = null; b.textContent = "Delete";
+  if (!delArmed) {
+    b.classList.add("armed");
+    banner(`Click 🗑 again to delete ${splitPath(current)[1]}`, 3000);
+    delArmed = setTimeout(() => { delArmed = null; b.classList.remove("armed"); }, 3000);
+    return;
+  }
+  clearTimeout(delArmed); delArmed = null; b.classList.remove("armed");
   const fo = splitPath(current)[0];
   endDebug(); delete files[current];
   if (!Object.keys(files).length) files["untitled.py"] = { code: "", bps: [], placeholder: true };

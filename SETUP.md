@@ -80,17 +80,17 @@ In the **Students** tab, add one row per student:
 - **Copy** and **Print** are at the top of the panel.
 
 ## Folders
-- **Make a folder:** **+ Folder**. Click a folder to open or close it. Hover over it to rename ✎ or delete ✕.
+- **Make a folder:** **📁** (New folder). The file buttons are the row of icons under the file list's title; hover over one to see what it does. Click a folder to open or close it. Hover over it to rename ✎ or delete ✕.
   Deleting a folder sends it, with its files, to your Drive trash.
 - **New files and uploads** go into the folder you're working in. Click **My files** to work outside any folder.
-- **Move a file:** use **Move**, or drag it onto a folder. Drag it onto **My files** to take it out of a folder.
+- **Move a file:** use **↪** (Move), or drag it onto a folder. Drag it onto **My files** to take it out of a folder.
 - **Class files** can have folders too.
 - **In Drive,** folders are real subfolders, one level deep.
 
 ## Class files (starter code for a class)
 - **Add files:** in the **Classes** panel, pick a class and click **📁 Class files**. Add files there with
-  **+ New** or **Upload**, or edit them like any other file.
-- **Share an existing file:** open one of **My files** and click **📤 Share to class**, then choose the class.
+  **📄** (New file) or **⬆** (Upload), or edit them like any other file.
+- **Share an existing file:** open one of **My files** and click **📤** (Share to class), then choose the class.
   This copies the file into that class's Class files, not into a folder, even if it's in one of your folders.
   If a file with the same name is already there, it's updated. To group a class's files, open its 📁 Class files and use + Folder and Move.
 - **What students see:** a **Class files** section below their own files. They can open, read, run and debug them
