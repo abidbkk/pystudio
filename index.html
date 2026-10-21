@@ -1864,8 +1864,7 @@ function loadFile(name) {
   viewingClassFile = null;
   cm.setOption("readOnly", false);
   current = name;
-  curFolder = splitPath(name)[0];
-  if (curFolder) openFolders.add(curFolder);
+  curFolder = splitPath(name)[0];       // folders stay as they are: closed unless the person opened them
   loading = true;
   cm.setValue(files[name].code);
   cm.clearHistory();
@@ -2038,6 +2037,7 @@ $("#fNew").onclick = () => {
   saveCurrent(); endDebug();
   const n = uniqueName("untitled.py", files, curFolder);
   files[n] = { code: "", bps: [] };
+  if (curFolder) openFolders.add(curFolder);   // show the new file so it can be named
   loadFile(n); persist();
   startRename();
 };
@@ -2094,6 +2094,7 @@ $("#fUpload").onclick = () => $("#upload").click();
 $("#upload").onchange = async e => {
   saveCurrent(); let last;
   for (const f of e.target.files) { last = uniqueName(f.name, files, curFolder); files[last] = { code: await f.text(), bps: [] }; }
+  if (curFolder) openFolders.add(curFolder);
   e.target.value = "";
   if (last) { persist(); endDebug(); loadFile(last); }
 };
@@ -2963,7 +2964,7 @@ addEventListener("offline", () => { if (mode === "cloud" && (inflight || flushT)
 function switchFiles(newMode, f) {
   endDebug(); clearMarks(); showOutput("");
   mode = newMode; files = f;
-  openFolders = new Set(store.get(openKey(), []));
+  openFolders = new Set();               // every folder starts closed
   curFolder = "";
   current = store.get(curKey(), null);
   if (!files[current]) current = Object.keys(files).sort()[0];
