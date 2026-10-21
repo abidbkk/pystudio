@@ -73,7 +73,7 @@ In the **Students** tab, add one row per student:
 - It follows the syllabus style: `←`, `IF … THEN`, `ELSEIF … THEN`, `ELSE`, `ENDIF` (THEN on the same line; Python `elif` becomes `ELSEIF`), `CASE OF` (from Python `match`), `FOR … TO … STEP … NEXT`, `WHILE … DO … ENDWHILE`,
   `REPEAT … UNTIL`, `PROCEDURE`/`FUNCTION … RETURNS`, `INPUT`/`OUTPUT`, `MOD`/`DIV`, `LENGTH`/`SUBSTRING`/`UCASE`/`LCASE`,
   `ROUND`/`RANDOM` and file handling.
-- Arrays keep Python's 0-based indexes, written as `ARRAY[0:n]`. `DECLARE` lines are added automatically, and names are written in PascalCase.
+- Arrays keep Python's 0-based indexes, written as `ARRAY[0:n]`. A list written out in full becomes one line, e.g. `Numbers ← [12, 45, 7]`. `DECLARE` lines are added automatically, and names are written in PascalCase.
 - Python with no Cambridge equivalent (for example lists that grow, list comprehensions or turtle) is marked with a `// Note` line, or with `< >` around the Python.
 - **Copy** and **Print** are at the top of the panel.
 

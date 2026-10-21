@@ -1459,16 +1459,15 @@ class Translator:
         self.emit(I, f"{self.expr(target, sc)} ← {self.sx(value, sc)}{tr}", L)
 
     def list_literal(self, name, value, I, sc, L, tr):
+        """numbers = [1, 2, 3] -> Numbers ← [1, 2, 3] (one line; 2D lists as [[...], [...]])"""
         if not value.elts:
             self.note(I, f"{name} starts empty — Cambridge arrays have a fixed size", L)
             return
-        if all(isinstance(e, ast.List) for e in value.elts):
-            for r, row in enumerate(value.elts):
-                for c, v in enumerate(row.elts):
-                    self.emit(I, f"{name}[{r}, {c}] ← {self.expr(v, sc)}" + (tr if r == c == 0 else ""), L)
-            return
-        for i, v in enumerate(value.elts):
-            self.emit(I, f"{name}[{i}] ← {self.expr(v, sc)}" + (tr if i == 0 else ""), L)
+        def lit(n):
+            if isinstance(n, ast.List):
+                return "[" + ", ".join(lit(e) for e in n.elts) + "]"
+            return self.sx(n, sc)
+        self.emit(I, f"{name} ← {lit(value)}{tr}", L)
 
     def expr_stmt(self, v, I, sc, L, tr):
         if isinstance(v, ast.Constant) and isinstance(v.value, str):         # docstring
