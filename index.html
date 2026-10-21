@@ -840,6 +840,7 @@ class Translator:
         self.all_consts = set()
         self.ctx = ("", 1)          # indent and Python line of the statement being written
         self.depth = 0              # nesting of "for x in <list/string>" loops (index names)
+        self.explain = []           # short comments for the next line written, e.g. what a RANDOM gives
 
     # ---------- comments from the source (ast does not keep them)
     @staticmethod
@@ -869,6 +870,9 @@ class Translator:
         return ""
 
     def emit(self, ind, text, pyline):
+        if self.explain and text and not text.startswith("//"):
+            text += ("; " if "    // " in text else "    // ") + "; ".join(self.explain)
+            self.explain = []
         self.lines.append((ind, text, pyline))
 
     def note(self, ind, text, pyline):
@@ -1278,6 +1282,7 @@ class Translator:
                     else:
                         span = E(ast.BinOp(hi, ast.Sub(), lo), sc, 6)
                     base = f"ROUND(RANDOM() * {span}, 0)"
+                    self.explain.append(f"a whole number from {E(lo, sc)} to {E(hi, sc)}")
                     return base if isinstance(lo, ast.Constant) and lo.value == 0 else f"{base} + {E(lo, sc, 6)}"
             if isinstance(obj, ast.Name) and obj.id == "math":
                 if attr == "sqrt" and len(args) == 1:
