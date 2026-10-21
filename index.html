@@ -15,7 +15,7 @@
   --ok:#16a34a; --mono:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;
   /* zones: each area of the screen has its own soft shade; the code stays white */
   --hdr:#1e293b; --hdr-text:#f1f5f9; --hdr-muted:#cbd5e1; --hdr-line:#0f172a;
-  --side:#eef1f5; --out:#f7f8fa; --dbg:#f4f6f9; --band:rgba(15,23,42,.05); --btnbg:#ffffff; --hover:rgba(15,23,42,.06);
+  --side:#273449; --out:#f7f8fa; --dbg:#f4f6f9; --band:rgba(15,23,42,.05); --btnbg:#ffffff; --hover:rgba(15,23,42,.06);
 }
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
@@ -84,6 +84,9 @@ main.pseudo #pseudo{display:flex}
 .perr a{color:var(--accent)}
 .cm-map{background:#bfdbfe}
 #btnPseudo.on{background:var(--cur);border-color:#d4b106}
+/* dark sidebar: its own light-on-dark colours for everything inside it */
+aside#files{--text:#e2e8f0; --muted:#94a3b8; --border:#3a4a63; --hover:rgba(255,255,255,.08); --band:rgba(0,0,0,.18);
+  --btnbg:#33425b; --btn:#33425b; --btn-hover:#3e5070; --panel:#1f2a3c; --cur:#5a4b12; --danger:#f87171; color:var(--text)}
 aside#files{grid-area:files;background:var(--side);border-right:1px solid var(--border);display:flex;flex-direction:column;min-height:0}
 .ptitle{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);padding:6px 12px;margin-bottom:4px;background:var(--band);border-bottom:1px solid var(--border);font-weight:600;display:flex;align-items:center;justify-content:space-between}
 #filelist{list-style:none;margin:0;padding:0 6px;overflow:auto;flex:1}
