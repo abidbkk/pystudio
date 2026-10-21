@@ -144,7 +144,26 @@ function importFromClassroom() {
   }
   if (add.length) Logger.log(`Added ${add.length} co-teacher(s): ` + add.map(a => a[1]).join(', '));
   if (noEmail) Logger.log(`⚠ ${noEmail} student(s) were skipped because Classroom did not share their email address.`);
+  if (picked.length) prepareFolders();
   Logger.log('Class list: ' + ss.getUrl());
+}
+
+/**
+ * Creates the Drive folder of every student on the class list who doesn't have one yet, so a
+ * whole class logging in for the first time doesn't have to wait for folders to be made.
+ * Runs automatically after importFromClassroom; safe to run again (from the editor) at any time.
+ */
+function prepareFolders() {
+  CacheService.getScriptCache().remove('roster');
+  const students = roster_().students;
+  let made = 0;
+  Object.keys(students).forEach(email => {
+    if (PROPS.getProperty('f:' + email)) return;
+    folderFor_(email);
+    made++;
+  });
+  Logger.log(made ? `Created ${made} student folder(s).` : 'Every student already has a folder.');
+  return made;
 }
 
 function coursesSheet_(ss) {
@@ -258,13 +277,28 @@ function classFolder_(cls) {
   try { const f = DriveApp.getFolderById(id); return f.isTrashed() ? null : f; } catch (e) { return null; }
 }
 
+/** The folder id for `email` without asking Drive when it is already known. */
+function folderIdFor_(email) {
+  return PROPS.getProperty('f:' + email) || folderFor_(email).getId();
+}
+
+/** The id of `rootFolder()`'s subfolder `name`, remembered for a few minutes. */
+function subfolderId_(rootFolder, rootId, name) {
+  name = cleanFolder_(name);
+  if (!name) return rootId;
+  const cache = CacheService.getScriptCache(), key = 'sd:' + rootId + ':' + name;
+  let id = cache.get(key);
+  if (!id) { id = subfolder_(rootFolder(), name, true).getId(); cache.put(key, id, REMEMBER_S); }
+  return id;
+}
+
 /** `email` is a person's email, or "class:<name>" for a class's shared files. */
 function folderFor_(email) {
   const key = 'f:' + email;
   const id = PROPS.getProperty(key);
   if (id) { try { const f = DriveApp.getFolderById(id); if (!f.isTrashed()) return f; } catch (e) {} }
   const lock = LockService.getScriptLock();
-  lock.waitLock(20000);
+  lock.waitLock(30000);
   try {
     const again = PROPS.getProperty(key);
     if (again && again !== id) return DriveApp.getFolderById(again);
@@ -393,18 +427,18 @@ function listFiles(target, known, classKnown, since, classSince) {
   // hasn't changed since, the answer is just { unchanged: true } without reading Drive.
   const me = me_();
   const email = target_(me, target);
-  const folder = folderFor_(email);
-  const token = folderToken_(folder.getId());          // read before listing (see folderChanged_)
-  const res = since && since === token ? { unchanged: true } : filesIn_(folder, known || {});
+  const token = folderToken_(folderIdFor_(email));     // read before listing (see folderChanged_)
+  const res = since && since === token ? { unchanged: true } : filesIn_(folderFor_(email), known || {});
   res.token = token;
   if (email === me.email && me.role === 'student') {
     classSince = classSince || {};
     res.classes = roster_().students[me.email].classes.map(cls => {
-      const cf = classFolder_(cls);
-      if (!cf) return { cls, files: [] };
-      const t = folderToken_(cf.getId());
+      const cid = PROPS.getProperty('f:class:' + cls);
+      if (!cid) return { cls, files: [] };                // the teacher hasn't added class files yet
+      const t = folderToken_(cid);
       if (classSince[cls] && classSince[cls] === t) return { cls, unchanged: true, token: t };
-      return { cls, files: filesIn_(cf, classKnown || {}).files, token: t };
+      const cf = classFolder_(cls);
+      return cf ? { cls, files: filesIn_(cf, classKnown || {}).files, token: t } : { cls, files: [] };
     });
   }
   return res;
@@ -467,23 +501,27 @@ function shareToClass(cls, name, content, bps, inFolder) {
 function syncFiles(target, upserts, deletes) {
   const me = me_();
   const email = target_(me, target);
-  const folder = folderFor_(email);
-  const saved = {}, conflicts = [], remembered = {}, rootId = folder.getId();
+  // Only fetch the Folder from Drive when it is really needed (new files, moves, deletes).
+  const rootId = folderIdFor_(email);
+  let root = null;
+  const rootFolder = () => root || (root = folderFor_(email));
+  const folderById = id => id === rootId ? rootFolder() : DriveApp.getFolderById(id);
+  const saved = {}, conflicts = [], remembered = {};
   (upserts || []).slice(0, MAX_FILES).forEach(u => {
     const content = String(u.content == null ? '' : u.content);
     if (content.length > MAX_FILE_CHARS) throw new Error(`${u.name} is too large to save.`);
     const name = cleanName_(u.name);
     const bps = Array.isArray(u.bps) ? u.bps.filter(n => typeof n === 'number').slice(0, 500) : [];
-    const dir = subfolder_(folder, u.folder, true);
-    const dirId = u.folder ? dir.getId() : rootId;
-    // Already known to belong to this person/class? Then skip the parent-folder checks.
+    const dirId = subfolderId_(rootFolder, rootId, u.folder);
+    // Already known to belong to this person/class (checked in the last few minutes)? Then go
+    // straight to the file and skip the folder and parent checks.
     const info = u.id ? fileInfo_(u.id) : null;
     const knownHere = !!info && info.root === rootId;
     let f = null;
     if (u.id && knownHere) {
-      try { f = DriveApp.getFileById(u.id); if (f.isTrashed()) f = null; } catch (e) { f = null; }
+      try { f = DriveApp.getFileById(u.id); } catch (e) { f = null; }
     } else if (u.id) {
-      f = ownFile_(folder, u.id);
+      f = ownFile_(rootFolder(), u.id);
     }
     let v = 1;
     if (f) {
@@ -501,17 +539,21 @@ function syncFiles(target, upserts, deletes) {
         let here = false;
         const ps = f.getParents();
         while (ps.hasNext()) if (ps.next().getId() === dirId) here = true;
-        if (!here) f.moveTo(dir);
+        if (!here) f.moveTo(folderById(dirId));
       }
     } else {
-      f = dir.createFile(name, content, MimeType.PLAIN_TEXT);
+      f = folderById(dirId).createFile(name, content, MimeType.PLAIN_TEXT);
     }
     f.setDescription(JSON.stringify({ bps, v, by: me.email }));
     const fid = u.id && f ? (knownHere ? u.id : f.getId()) : f.getId();
     saved[u.key] = { id: fid, v };
     remembered[fid] = { root: rootId, dir: dirId, v, name };
   });
-  (deletes || []).forEach(id => { const f = ownFile_(folder, id); if (f) f.setTrashed(true); });
+  (deletes || []).forEach(id => {
+    const f = ownFile_(rootFolder(), id);
+    if (f) f.setTrashed(true);
+    CacheService.getScriptCache().remove('fi:' + id);
+  });
   rememberFiles_(remembered);
   if (Object.keys(saved).length || (deletes || []).length) folderChanged_(rootId);
   touch_(me);
@@ -525,6 +567,8 @@ function folderOp(target, op, name, newName) {
   folderChanged_(folder.getId());
   name = cleanFolder_(name);
   if (!name) throw new Error('Folder names cannot be empty.');
+  // forget remembered subfolder ids for the names involved (see subfolderId_)
+  CacheService.getScriptCache().removeAll(['sd:' + folder.getId() + ':' + name, 'sd:' + folder.getId() + ':' + cleanFolder_(newName)]);
   if (op === 'create') { subfolder_(folder, name, true); return { ok: true }; }
   const d = subfolder_(folder, name, false);
   if (!d) { if (op === 'delete') return { ok: true }; throw new Error(`There is no folder called ${name}.`); }

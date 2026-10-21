@@ -37,6 +37,8 @@ files are then saved only in that browser.
    and co-teachers of those courses are added to the **Teachers** tab.
 
 Run `importFromClassroom` again whenever students join or leave, or after you change the ticks.
+Each import also creates a Drive folder for every new student, so a whole class can log in for the first time without waiting.
+If you type students in yourself (Option B), run **`prepareFolders`** once afterwards to do the same.
 New Classroom courses appear in the Courses tab unticked. Unticking a course removes its students from PyStudio's list,
 but their files stay in Drive. Classes you typed into the Students tab yourself are never touched.
 You don't need to redeploy after an import.
