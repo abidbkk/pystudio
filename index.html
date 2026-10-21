@@ -94,6 +94,14 @@ aside#files{grid-area:files;background:var(--panel);border-right:1px solid var(-
 #stuList li.active{background:var(--accent);color:var(--accent-text)}
 #stuList li small{color:var(--muted);font-size:11px;white-space:nowrap}
 #stuList li.active small{color:inherit;opacity:.8}
+#filelist li.loadrow{cursor:default;font-family:inherit;color:var(--muted);display:flex;align-items:center;gap:8px;padding:10px 8px;white-space:normal}
+#filelist li.loadrow:hover,#stuList li.loadrow:hover{background:none}
+#filelist li.loadrow button{margin-left:auto;font-size:11px;padding:2px 8px}
+#stuList li.loadrow{cursor:default;color:var(--muted);justify-content:flex-start;gap:8px}
+.spin{width:14px;height:14px;flex:0 0 14px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+#files.loadingfiles .filebtns button,#files.loadingfiles .filebtns select{pointer-events:none;opacity:.45}
+#editor.dim .CodeMirror{opacity:.45}
 #filelist li.folder{font-family:inherit;display:flex;align-items:center;gap:4px}
 #filelist li.folder .tw{width:10px;color:var(--muted);font-size:10px}
 #filelist li.folder .fn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
@@ -1860,7 +1868,22 @@ function allFolders() {
 const openKey = () => "pystudio.open." + (view ? view.target : "local");
 function saveOpen() { store.set(openKey(), [...openFolders]); }
 
+// Shows a spinner and message in the file list while files are fetched (msg = null to clear).
+// The editor is dimmed and read-only meanwhile, and the file buttons are disabled.
+function setFilesLoading(msg, retry) {
+  $("#files").classList.toggle("loadingfiles", !!msg || !!retry);
+  $("#editor").classList.toggle("dim", !!msg || !!retry);
+  cm.setOption("readOnly", !!msg || !!retry || !!viewingClassFile);
+  if (!msg && !retry) return;
+  $("#classsec").classList.add("hidden");
+  $("#filelist").innerHTML = retry
+    ? `<li class="loadrow">⚠ ${esc(msg)}<button id="flRetry">Try again</button></li>`
+    : `<li class="loadrow"><span class="spin"></span>${esc(msg)}</li>`;
+  if (retry) $("#flRetry").onclick = retry;
+}
+
 function renderFiles() {
+  if (!files) return;
   const byFolder = new Map(allFolders().map(f => [f, []])), root = [];
   for (const k of Object.keys(files)) { const [fo, n] = splitPath(k); (fo ? byFolder.get(fo) : root).push([k, n]); }
   const byName = (a, b) => a[1].localeCompare(b[1], undefined, { numeric: true });
@@ -2939,12 +2962,17 @@ async function openView(target, label, isMe) {
   }
   setSaveState("opening", isMe ? "Opening your files…" : target.startsWith("class:") ? `Opening ${label}…` : `Opening ${firstName(label)}'s files…`);
   let r;
+  setFilesLoading(isMe ? "Loading your files…" : target.startsWith("class:") ? `Loading ${label}…` : `Loading ${firstName(label)}'s files…`);
   try { r = await bridge.call("listFiles", target, {}); }
   catch (e) {
-    if (ctx === ctxN) { setSaveState(mode === "local" ? "local" : "saved"); banner("Could not open files: " + e.message, 6000); }
+    if (ctx !== ctxN) return;
+    setSaveState(mode === "local" ? "local" : "saved");
+    if (files && mode === "cloud") { setFilesLoading(null); renderFiles(); banner("Could not open files: " + e.message, 6000); }
+    else setFilesLoading("Could not load the files: " + e.message, () => openView(target, label, isMe));
     return;
   }
   if (ctx !== ctxN) return;
+  setFilesLoading(null);
   const f = {}, s = new Map();
   for (const x of r.files) {
     const xp = joinPath(x.folder || "", x.name);
@@ -2977,9 +3005,17 @@ function renderView() {
 function showAcct(text) { $("#acct").classList.remove("hidden"); $("#who").textContent = text; }
 
 // ---------- teacher: classes and students ----------
+let classesLoaded = false;
 async function loadClasses() {
   try { classes = await bridge.call("listClasses"); }
-  catch (e) { banner("Could not load classes: " + e.message, 6000); return; }
+  catch (e) {
+    if (!classesLoaded) {
+      $("#stuList").innerHTML = `<li class="loadrow">⚠ Could not load classes <button id="clsRetry" style="font-size:11px;padding:1px 7px">Try again</button></li>`;
+      $("#clsRetry").onclick = () => { $("#stuList").innerHTML = `<li class="loadrow"><span class="spin"></span>Loading classes…</li>`; loadClasses(); };
+    } else banner("Could not load classes: " + e.message, 6000);
+    return;
+  }
+  classesLoaded = true;
   const sel = $("#clsSel"), keep = store.get("pystudio.class", null);
   sel.innerHTML = classes.length
     ? classes.map(c => `<option>${esc(c.name)}</option>`).join("")
@@ -2996,6 +3032,7 @@ function ago(t) {
   return Math.round(m / 1440) + "d ago";
 }
 function renderStudents() {
+  if (!classesLoaded) return;                // keep "Loading classes…" until the list arrives
   const c = classes.find(c => c.name === $("#clsSel").value);
   const cf = c ? `<li data-classfiles="${esc(c.name)}" class="${view && view.target === "class:" + c.name ? "active" : ""}" title="Starter files every student in ${esc(c.name)} can open">📁 Class files<small>shared</small></li>` : "";
   $("#stuList").innerHTML = cf + (c ? c.students : []).map(s =>
@@ -3039,19 +3076,26 @@ $("#btnClsRefresh").onclick = loadClasses;
 
 // ---------- start-up: who is signed in? ----------
 async function initAccounts() {
-  useLocal();
-  if (window.parent === window) return;   // opened directly, not through the school link
+  if (window.parent === window) { useLocal(); return; }   // opened directly, not through the school link
+  loading = true; cm.setValue(""); loading = false;
+  setFilesLoading("Signing in…");
   let info;
   try { info = await Promise.race([bridge.call("whoAmI"), sleep(20000).then(() => { throw new Error("no answer"); })]); }
-  catch (e) { showAcct("Not connected — files are saved on this computer only"); return; }
+  catch (e) { setFilesLoading(null); useLocal(); showAcct("Not connected — files are saved on this computer only"); return; }
   me = info;
   if (me.role === "none") {
+    setFilesLoading(null); useLocal();
     showAcct(`${me.email} · not on a class list`);
     banner("Your account is not on a class list yet — ask your teacher to add you. Until then, files are saved on this computer only.", 10000);
     return;
   }
   showAcct(me.role === "teacher" ? `${me.email} · Teacher` : `${me.name} · ${me.cls}`);
-  if (me.role === "teacher") { $("#teach").classList.remove("hidden"); loadClasses(); }
+  if (me.role === "teacher") {
+    $("#teach").classList.remove("hidden");
+    $("#clsSel").innerHTML = "<option>Loading…</option>";
+    $("#stuList").innerHTML = `<li class="loadrow"><span class="spin"></span>Loading classes…</li>`;
+    loadClasses();
+  }
   await openView(me.email, me.name, true);
 }
 renderWatches();
