@@ -82,7 +82,7 @@ In the **Students** tab, add one row per student:
   Deleting a folder sends it, with its files, to your Drive trash.
 - **New files and uploads** go into the folder you're working in. Click **My files** to work outside any folder.
 - **Move a file:** use **Move**, or drag it onto a folder. Drag it onto **My files** to take it out of a folder.
-- **Class files** can have folders too. When a student edits one, their copy goes into a folder with the same name.
+- **Class files** can have folders too.
 - **In Drive,** folders are real subfolders, one level deep.
 
 ## Class files (starter code for a class)
@@ -91,8 +91,8 @@ In the **Students** tab, add one row per student:
 - **Share an existing file:** open one of **My files** and click **📤 Share to class**, then choose the class.
   This copies the file into that class's Class files, not into a folder, even if it's in one of your folders.
   If a file with the same name is already there, it's updated. To group a class's files, open its 📁 Class files and use + Folder and Move.
-- **What students see:** a **Class files** section below their own files. They can open, run and debug them.
-  As soon as they type, the file becomes **their own copy** in My files. Your original is never changed.
+- **What students see:** a **Class files** section below their own files. They can open, read, run and debug them
+  (and add breakpoints), but class files are **read only**: students can't change them, and no copy is made.
 - **Updating:** when you edit a class file, students see the new version within about 20 seconds. New students in the class get the files too.
 - **In Drive:** the files are stored in *PyStudio files › (class) › _Class files (students can see these)*.
 

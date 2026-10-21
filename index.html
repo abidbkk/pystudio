@@ -1815,7 +1815,6 @@ function getBps() {
 let saveT;
 cm.on("change", () => {
   if (loading) return;
-  if (viewingClassFile) forkClassFile();
   if (dbg) { endDebug(); banner("Code changed — debug session ended"); }
   else if (waiting) { cancelWait(); $("#conin")?.remove(); $("#output .wait")?.remove(); }
   clearMarks();
@@ -1833,6 +1832,7 @@ function saveCurrent() {
 }
 function loadFile(name) {
   viewingClassFile = null;
+  cm.setOption("readOnly", false);
   current = name;
   curFolder = splitPath(name)[0];
   if (curFolder) openFolders.add(curFolder);
@@ -1889,11 +1889,12 @@ function renderClassFiles() {
     const list = classFiles.filter(f => f.cls === g).sort((a, b) => (a.folder || "").localeCompare(b.folder || "") || a.name.localeCompare(b.name, undefined, { numeric: true }));
     for (const f of list) {
       if ((f.folder || "") !== last) { last = f.folder || ""; if (last) html += `<li class="grp">📁 ${esc(last)}</li>`; }
-      html += `<li class="${viewingClassFile && viewingClassFile.id === f.id ? "active" : ""}${f.folder ? " in" : ""}" data-id="${esc(f.id)}" title="From your teacher. Start typing to make your own copy.">📄 ${esc(f.name)}</li>`;
+      html += `<li class="${viewingClassFile && viewingClassFile.id === f.id ? "active" : ""}${f.folder ? " in" : ""}" data-id="${esc(f.id)}" title="From your teacher. You can run and debug it, but not change it.">📄 ${esc(f.name)}</li>`;
     }
     return html;
   }).join("");
 }
+// Class files are read-only for students: they can read, run and debug them, but not change them.
 function openClassFile(f) {
   saveCurrent(); endDebug(); clearMarks();
   viewingClassFile = f;
@@ -1901,23 +1902,16 @@ function openClassFile(f) {
   cm.setValue(f.code); cm.clearHistory();
   for (const l of f.bps || []) if (l - 1 < cm.lineCount()) cm.setGutterMarker(l - 1, "bp-gutter", bpMarker());
   loading = false;
-  $("#fname").textContent = joinPath(f.folder, f.name) + " (class file)";
+  cm.setOption("readOnly", true);
+  $("#fname").textContent = joinPath(f.folder, f.name) + " (class file, read only)";
   renderFiles();
-  banner("This file is from your teacher. Run or debug it — or start typing to make your own copy.", 5000);
+  banner("This file is from your teacher. You can run and debug it, but not change it.", 5000);
 }
-// The first edit to a class file turns it into the student's own file (in a folder of the same name).
-function forkClassFile() {
-  const f = viewingClassFile, fo = f.folder || "";
-  viewingClassFile = null;
-  const n = uniqueName(f.name, files, fo);
-  files[n] = { code: cm.getValue(), bps: getBps() };
-  if (fo) { folderSet.add(fo); openFolders.add(fo); saveOpen(); }
-  current = n; curFolder = fo;
-  $("#fname").textContent = n;
-  store.set(curKey(), n);
-  renderFiles(); persist();
-  banner(`Saved as your own copy: ${n}`, 4000);
-}
+// Typing in a class file: explain why nothing happens.
+cm.getWrapperElement().addEventListener("keydown", e => {
+  if (viewingClassFile && !e.ctrlKey && !e.metaKey && !e.altKey && (e.key.length === 1 || e.key === "Enter" || e.key === "Backspace" || e.key === "Delete"))
+    banner("Class files can't be changed. Make a new file with + New to write your own code.", 3500);
+});
 function mergeClassFiles(groups) {
   if (!groups) return;
   const old = new Map(classFiles.map(f => [f.id, f]));
@@ -2021,7 +2015,7 @@ function startRename() {
   inp.onkeydown = e => { if (e.key === "Enter") finish(true); if (e.key === "Escape") finish(false); };
   inp.onblur = () => finish(true);
 }
-$("#fRename").onclick = () => viewingClassFile ? banner("Class files can't be renamed — start typing to make your own copy first.", 4000) : startRename();
+$("#fRename").onclick = () => viewingClassFile ? banner("Class files come from your teacher and can't be renamed.", 4000) : startRename();
 let delArmed = null;
 $("#fDelete").onclick = () => {
   if (viewingClassFile) return banner("Class files come from your teacher and can't be deleted.", 4000);
@@ -2163,7 +2157,7 @@ function moveFile(key, folder) {
   banner(folder ? `Moved ${n} to ${folder}` : `Moved ${n} out of ${fo}`, 3000);
 }
 $("#fMove").onclick = () => {
-  if (viewingClassFile) return banner("Start typing to make your own copy first, then you can move it.", 4000);
+  if (viewingClassFile) return banner("Class files come from your teacher and can't be moved.", 4000);
   const [fo, n] = splitPath(current), opts = allFolders().filter(f => f !== fo);
   if (!opts.length && !fo) return banner("Make a folder first with + Folder.", 4000);
   const sel = $("#moveSel");
