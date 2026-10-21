@@ -1926,7 +1926,7 @@ function mergeClassFiles(groups) {
   }));
   if (viewingClassFile) {
     const now = classFiles.find(f => f.id === viewingClassFile.id);
-    if (now && now.v !== viewingClassFile.v && !dbg) {
+    if (now && now.v > viewingClassFile.v && !dbg) {
       viewingClassFile = now;
       const cur = cm.getCursor(); loading = true; cm.setValue(now.code); cm.setCursor(cur); loading = false;
       banner(`Your teacher updated ${now.name}`, 5000);
@@ -2765,7 +2765,7 @@ async function flush() {
     if (f.id && synced.get(f.id) === sig) continue;
     const key = f.id || (f.tmp ||= "new" + (++tmpN));
     const [folder, fname] = splitPath(name);
-    upserts.push({ key, id: f.id || null, base: f.id ? (f.v ?? null) : null, name: fname, folder, content: f.code, bps: f.bps || [] });
+    upserts.push({ key, id: f.id || null, base: null, name: fname, folder, content: f.code, bps: f.bps || [] });
     sent.set(key, [f, sig]);
   }
   for (const id of synced.keys()) if (!seen.has(id)) deletes.push(id);
@@ -2783,8 +2783,7 @@ async function flush() {
       f.id = s.id; f.v = s.v; delete f.tmp; delete f.placeholder;
       synced.set(s.id, sig);
     }
-    for (const c of r.conflicts) resolveConflict(c, sent.get(c.key));
-    if (again || r.conflicts.length) { again = false; flush(); }
+    if (again) { again = false; flush(); }
     else if (!flushT) setSaveState("saved");
   } catch (err) {
     inflight = false; again = false;
@@ -2795,23 +2794,6 @@ async function flush() {
   }
 }
 
-// Someone else saved the file since we loaded it: keep their version, save ours as a copy.
-function resolveConflict(c, entry) {
-  const f = entry && entry[0];
-  const name = Object.keys(files).find(n => files[n] === f);
-  if (!name) return;
-  const [fo, base] = splitPath(name);
-  const mine = uniqueName(base.replace(/\.py$/i, "") + "-mine.py", files, fo);
-  files[mine] = { code: f.code, bps: f.bps || [] };
-  delete files[name];
-  const theirsPath = joinPath(c.folder || "", c.name);
-  const theirsName = files[theirsPath] ? name : theirsPath;
-  files[theirsName] = { code: c.content, bps: c.bps || [], id: c.id, v: c.v };
-  synced.set(c.id, sigOf(theirsName, files[theirsName]));
-  if (current === name) { current = theirsName; reloadEditor(); }
-  renderFiles();
-  banner(`${who(c.by)} changed ${theirsName} at the same time. Their version is kept — yours is saved as ${mine}.`, 9000);
-}
 function who(email) {
   if (!email || email === me?.email) return "You (in another window)";
   if (view && email === view.target) return view.label;
@@ -2878,7 +2860,7 @@ function mergeRemote(list, foldersChanged) {
       continue;
     }
     const f = files[name];
-    if (s.v === f.v || s.content === undefined) continue;
+    if (s.content === undefined || (f.v != null && s.v <= f.v)) continue;   // same or older than ours
     if (synced.get(s.id) !== sigOf(name, f)) continue;   // unsaved edits here; saving sorts it out
     if (dbg && name === current) continue;               // don't change code under the debugger
     delete files[name];

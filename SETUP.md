@@ -63,7 +63,7 @@ In the **Students** tab, add one row per student:
 - Pick a class, then click a student to open their files. You can run and debug them.
   While you watch, their changes appear every few seconds.
 - You can also edit their files. Your edits save into the student's file, and they see them within about 20 seconds.
-  If you both change the same file at the same moment, nothing is lost: the second person's version is saved as `name-mine.py`.
+  If you both change the same file at the same moment, the most recent save wins. No extra copies are made.
 - You can also browse everyone's work directly in the *PyStudio files* folder in Drive, organised as Class → Student.
 - Deleted files go to **your** Drive trash, so you can restore them for 30 days.
 
