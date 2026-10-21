@@ -4,7 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>PyStudio</title>
-<script>try { if (localStorage.getItem("pystudio.look") === '"light"') document.documentElement.dataset.look = "light"; } catch (e) {}</script>
+<script>
+  // Light unless this person chose dark with the 🌙 button (remembered in this browser)
+  (function () { let t = "light"; try { if (localStorage.getItem("pystudio.theme") === '"dark"') t = "dark"; } catch (e) {} document.documentElement.dataset.theme = t; })();
+</script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/material-darker.min.css">
 <style>
@@ -14,25 +17,14 @@
   --btn:#eef1f5; --btn-hover:#e1e6ee; --danger:#dc2626;
   --cur:#fff1a8; --ret:#d3f5dd; --exc:#fde0e0; --changed:#fff1a8; --bp:#e5484d;
   --ok:#16a34a; --mono:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;
-  /* zones: each area of the screen has its own soft shade; the code stays white */
-  --hdr:#1e293b; --hdr-text:#f1f5f9; --hdr-muted:#cbd5e1; --hdr-line:#0f172a;
-  --side:#273449; --out:#f7f8fa; --dbg:#f4f6f9; --band:rgba(15,23,42,.05); --btnbg:#ffffff; --hover:rgba(15,23,42,.06);
-}
-@media (prefers-color-scheme: dark){
-  :root:not([data-theme="light"]){
-    --bg:#15171c; --panel:#1d2027; --border:#2e333d; --text:#e6e8ec; --muted:#9aa3b2;
-    --accent:#3b82f6; --accent-hover:#60a5fa; --btn:#2a2f39; --btn-hover:#353b47; --danger:#f87171;
-    --cur:#5a4b12; --ret:#15452a; --exc:#5a1f1f; --changed:#5a4b12; --bp:#f0595e; --ok:#4ade80;
-    --hdr:#0b0d11; --hdr-text:#f1f5f9; --hdr-muted:#9aa3b2; --hdr-line:#000;
-    --side:#181b21; --out:#1a1d23; --dbg:#1b1e24; --band:rgba(255,255,255,.04); --btnbg:#262a33; --hover:rgba(255,255,255,.06);
-  }
+  /* the panels all use the same colour (white in light, dark grey in dark) */
+  --hdr:var(--panel); --hdr-text:var(--text); --hdr-muted:var(--muted); --hdr-line:var(--border); --hdr-ok:var(--ok); --hdr-warn:#d97706;
+  --side:var(--panel); --out:var(--panel); --dbg:var(--panel); --band:transparent; --btnbg:var(--btn); --hover:var(--btn);
 }
 :root[data-theme="dark"]{
   --bg:#15171c; --panel:#1d2027; --border:#2e333d; --text:#e6e8ec; --muted:#9aa3b2;
   --accent:#3b82f6; --accent-hover:#60a5fa; --btn:#2a2f39; --btn-hover:#353b47; --danger:#f87171;
   --cur:#5a4b12; --ret:#15452a; --exc:#5a1f1f; --changed:#5a4b12; --bp:#f0595e; --ok:#4ade80;
-  --hdr:#0b0d11; --hdr-text:#f1f5f9; --hdr-muted:#9aa3b2; --hdr-line:#000;
-  --side:#181b21; --out:#1a1d23; --dbg:#1b1e24; --band:rgba(255,255,255,.04); --btnbg:#262a33; --hover:rgba(255,255,255,.06);
 }
 *{box-sizing:border-box}
 html,body{height:100%;margin:0}
@@ -52,7 +44,7 @@ header #fname,header #status,header #acct{color:var(--hdr-muted)}
 header #savestate{color:var(--hdr-muted)}
 header #savestate.ok{color:var(--hdr-ok,#4ade80)}
 header #savestate.warn{color:var(--hdr-warn,#fbbf24)}
-header #acct{border-right-color:rgba(255,255,255,.2)}
+header #acct{border-right-color:var(--border)}
 header h1{font-size:16px;margin:0 12px 0 0;font-weight:650}
 #fname{font-family:var(--mono);color:var(--muted)}
 #savestate{font-size:12px;color:var(--muted);margin-right:auto}
@@ -61,10 +53,12 @@ header h1{font-size:16px;margin:0 12px 0 0;font-weight:650}
 #status{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px}
 #status::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--muted)}
 #status.ok::before{background:var(--ok)} #status.busy::before{background:#f59e0b} #status.err::before{background:var(--danger)}
-main{flex:1;min-height:0;display:grid;grid-template-columns:240px minmax(0,1fr);grid-template-rows:minmax(0,1fr) 210px;grid-template-areas:"files editor" "files io"}
-main.debugging{grid-template-columns:240px minmax(0,1fr) 360px;grid-template-areas:"files editor debug" "files io debug"}
-main.pseudo{grid-template-columns:240px minmax(0,1fr) minmax(0,1fr);grid-template-areas:"files editor pseudo" "files io io"}
-main.pseudo.debugging{grid-template-columns:240px minmax(0,1fr) minmax(0,1fr) 360px;grid-template-areas:"files editor pseudo debug" "files io io debug"}
+main{--sidew:240px;flex:1;min-height:0;display:grid;grid-template-columns:var(--sidew) minmax(0,1fr);grid-template-rows:minmax(0,1fr) 210px;grid-template-areas:"files editor" "files io"}
+main.nofiles{--sidew:0px}
+main.nofiles aside#files{display:none}
+main.debugging{grid-template-columns:var(--sidew) minmax(0,1fr) 360px;grid-template-areas:"files editor debug" "files io debug"}
+main.pseudo{grid-template-columns:var(--sidew) minmax(0,1fr) minmax(0,1fr);grid-template-areas:"files editor pseudo" "files io io"}
+main.pseudo.debugging{grid-template-columns:var(--sidew) minmax(0,1fr) minmax(0,1fr) 360px;grid-template-areas:"files editor pseudo debug" "files io io debug"}
 #pseudo{grid-area:pseudo;display:none;flex-direction:column;min-height:0;background:var(--panel);border-left:1px solid var(--border)}
 main.pseudo #pseudo{display:flex}
 .psright{display:flex;gap:4px;align-items:center;text-transform:none;letter-spacing:0;font-weight:400}
@@ -84,17 +78,12 @@ main.pseudo #pseudo{display:flex}
 .perr{padding:10px 12px;color:var(--muted);font-family:system-ui,sans-serif;font-size:13px}
 .perr a{color:var(--accent)}
 .cm-map{background:#bfdbfe}
-#btnPseudo.on{background:var(--cur);border-color:#d4b106}
-/* "Light" look (the original): white header, sidebar and panels. Chosen with the 🎨 button. */
-:root[data-look="light"]{--hdr:var(--panel); --hdr-text:var(--text); --hdr-muted:var(--muted); --hdr-line:var(--border);
-  --hdr-ok:var(--ok); --hdr-warn:#d97706; --side:var(--panel); --out:var(--panel); --dbg:var(--panel); --band:transparent; --btnbg:var(--btn)}
-:root[data-look="light"] .ptitle{border-bottom-color:transparent}
-:root[data-look="light"] header #acct{border-right-color:var(--border)}
-/* dark sidebar: its own light-on-dark colours for everything inside it */
-:root:not([data-look="light"]) aside#files{--text:#e2e8f0; --muted:#94a3b8; --border:#3a4a63; --hover:rgba(255,255,255,.08); --band:rgba(0,0,0,.18);
-  --btnbg:#33425b; --btn:#33425b; --btn-hover:#3e5070; --panel:#1f2a3c; --cur:#5a4b12; --danger:#f87171; color:var(--text)}
+:root[data-theme="dark"] .cm-map{background:#1e3a5f}
+:root[data-theme="dark"] .ps{color:#4ade80}
+:root[data-theme="dark"] .pn,:root[data-theme="dark"] .pm,:root[data-theme="dark"] #psinfo{color:#fbbf24}
+#btnPseudo.on,#btnSide.on{background:var(--cur);border-color:#d4b106}
 aside#files{grid-area:files;background:var(--side);border-right:1px solid var(--border);display:flex;flex-direction:column;min-height:0}
-.ptitle{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);padding:6px 12px;margin-bottom:4px;background:var(--band);border-bottom:1px solid var(--border);font-weight:600;display:flex;align-items:center;justify-content:space-between}
+.ptitle{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);padding:10px 12px 6px;font-weight:600;display:flex;align-items:center;justify-content:space-between}
 #filelist{list-style:none;margin:0;padding:0 6px;overflow:auto;flex:1}
 #filelist li{padding:5px 8px;border-radius:5px;cursor:pointer;font-family:var(--mono);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #filelist li:hover{background:var(--hover)}
@@ -207,6 +196,7 @@ tr.chg td{background:var(--changed)}
 </head>
 <body>
 <header>
+  <button id="btnSide" title="Hide the files sidebar">☰</button>
   <h1>🐍 PyStudio</h1>
   <span id="fname"></span>
   <span id="savestate"></span>
@@ -215,7 +205,7 @@ tr.chg td{background:var(--changed)}
   <button id="btnDebug" title="Debug (F5). Tip: click left of a line number to add a breakpoint where the program should pause." disabled>🐞 Debug</button>
   <button id="btnStop" class="danger" title="Stop the program" disabled>■ Stop</button>
   <button id="btnPseudo" title="Show this code as Cambridge IGCSE pseudocode">📝 Pseudocode</button>
-  <button id="btnLook" title="Switch colours: dark frame / light">🎨</button>
+  <button id="btnLook" title="Switch to dark colours">🌙</button>
   <span id="status" class="busy">Loading Python…</span>
 </header>
 <main>
@@ -3144,12 +3134,25 @@ async function initAccounts() {
   }
   await openView(me.email, me.name, true);
 }
-// 🎨 switches between the dark frame (default) and the original light look; remembered per browser
+// 🌙 / ☀️ switches the whole page between light (default) and dark; remembered per browser
+function setTheme(t) {
+  document.documentElement.dataset.theme = t;
+  cm.setOption("theme", cmTheme());
+  $("#btnLook").textContent = t === "dark" ? "☀️" : "🌙";
+  $("#btnLook").title = t === "dark" ? "Switch to light colours" : "Switch to dark colours";
+}
+setTheme(document.documentElement.dataset.theme || "light");
 $("#btnLook").onclick = () => {
-  const light = document.documentElement.dataset.look !== "light";
-  if (light) document.documentElement.dataset.look = "light"; else delete document.documentElement.dataset.look;
-  store.set("pystudio.look", light ? "light" : "dark");
-  banner(light ? "Light colours" : "Dark frame colours", 1500);
+  const t = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  setTheme(t);
+  store.set("pystudio.theme", t);
+};
+// ☰ hides / shows the files sidebar (open each time PyStudio starts)
+$("#btnSide").onclick = () => {
+  const hidden = $("main").classList.toggle("nofiles");
+  $("#btnSide").title = hidden ? "Show the files sidebar" : "Hide the files sidebar";
+  $("#btnSide").classList.toggle("on", hidden);
+  cm.refresh();
 };
 
 renderWatches();
