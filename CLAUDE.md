@@ -29,6 +29,8 @@ answers so far. Turtle is a recording module (`dev/turtle.py`) drawn on a canvas
 - `dev/opcount.js` counts Drive operations per request for a given Code.gs (performance comparisons).
 - Pseudocode: `cd dev/pseudo_tests && PYTHONIOENCODING=utf-8 python show.py <file.py>`.
 - Real-server load test: the teacher opens `<exec link>?page=loadtest` (teachers only).
+- Demo class: `apps-script/Demo.gs` (`makeDemoClass` / `removeDemoClass`, run from the Apps Script editor)
+  makes class "Y10 Comp Sci" with 5 made-up @example.com students, their files and class files.
 
 ## Decisions the teacher has made (keep them)
 - **Pseudocode (Cambridge IGCSE 0984):** 0-based arrays `ARRAY[0:n]`; `DECLARE` lines added; PascalCase
