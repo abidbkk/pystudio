@@ -216,10 +216,6 @@ tr.chg td{background:var(--changed)}
     </div>
     <div class="ptitle" id="filesTitle">My files</div>
     <ul id="filelist"></ul>
-    <div id="classsec" class="hidden">
-      <div class="ptitle">Class files</div>
-      <ul id="classlist"></ul>
-    </div>
     <div class="filebtns">
       <button id="fNew" title="New file (in the open folder)">+ New</button>
       <button id="fFolder" title="New folder">+ Folder</button>
@@ -231,6 +227,10 @@ tr.chg td{background:var(--changed)}
       <button id="fShare" class="hidden" title="Copy this file into a class's Class files">Share</button>
       <select id="moveSel" class="hidden"></select>
       <select id="shareSel" class="hidden"></select>
+    </div>
+    <div id="classsec" class="hidden">
+      <div class="ptitle">Class files</div>
+      <ul id="classlist"></ul>
     </div>
     <input type="file" id="upload" accept=".py,.txt" multiple class="hidden">
     <div id="teach" class="hidden">
