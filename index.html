@@ -201,6 +201,8 @@ tr.chg td{background:var(--changed)}
   <span id="fname"></span>
   <span id="savestate"></span>
   <span id="acct" class="hidden"><span id="who"></span></span>
+  <button id="btnUndo" title="Undo (Ctrl+Z)" disabled>↶ Undo</button>
+  <button id="btnRedo" title="Redo (Ctrl+Y)" disabled>↷ Redo</button>
   <button id="btnRun" class="primary" title="Run (Ctrl+Enter)" disabled>▶ Run</button>
   <button id="btnDebug" title="Debug (F5). Tip: click left of a line number to add a breakpoint where the program should pause." disabled>🐞 Debug</button>
   <button id="btnStop" class="danger" title="Stop the program" disabled>■ Stop</button>
@@ -1830,6 +1832,17 @@ const cm = CodeMirror($("#editor"), {
 });
 darkMQ.addEventListener?.("change", () => cm.setOption("theme", cmTheme()));
 
+// Undo / Redo buttons: only enabled when there is something to undo or redo in this file.
+function updateUndo() {
+  const h = cm.historySize(), ro = !!cm.getOption("readOnly");
+  $("#btnUndo").disabled = ro || !h.undo;
+  $("#btnRedo").disabled = ro || !h.redo;
+}
+cm.on("changes", updateUndo);
+cm.on("optionChange", (c, o) => { if (o === "readOnly") updateUndo(); });
+$("#btnUndo").onclick = () => { cm.undo(); cm.focus(); };
+$("#btnRedo").onclick = () => { cm.redo(); cm.focus(); };
+
 function bpMarker() { const d = document.createElement("div"); d.className = "bp-dot"; return d; }
 cm.on("gutterClick", (c, line) => {
   const info = c.lineInfo(line);
@@ -1867,7 +1880,7 @@ function loadFile(name) {
   curFolder = splitPath(name)[0];       // folders stay as they are: closed unless the person opened them
   loading = true;
   cm.setValue(files[name].code);
-  cm.clearHistory();
+  cm.clearHistory(); updateUndo();
   for (const l of files[name].bps || []) if (l - 1 < cm.lineCount()) cm.setGutterMarker(l - 1, "bp-gutter", bpMarker());
   loading = false;
   $("#fname").textContent = name;
@@ -1943,7 +1956,7 @@ function openClassFile(f) {
   saveCurrent(); endDebug(); clearMarks();
   viewingClassFile = f;
   loading = true;
-  cm.setValue(f.code); cm.clearHistory();
+  cm.setValue(f.code); cm.clearHistory(); updateUndo();
   for (const l of f.bps || []) if (l - 1 < cm.lineCount()) cm.setGutterMarker(l - 1, "bp-gutter", bpMarker());
   loading = false;
   cm.setOption("readOnly", true);
