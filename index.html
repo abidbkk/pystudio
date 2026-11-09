@@ -223,7 +223,7 @@ tr.chg td{background:var(--changed)}
       <button id="fFolder" title="New folder">+ Folder</button>
       <button id="fRename" title="Rename this file">Rename</button>
       <button id="fMove" title="Move this file into a folder (or drag it)">Move</button>
-      <button id="fUpload" title="Upload .py files">Upload</button>
+      <button id="fUpload" title="Upload .py or .txt files">Upload</button>
       <button id="fDownload" title="Download this file">Download</button>
       <button id="fDelete" class="danger" title="Delete this file">Delete</button>
       <button id="fShare" class="hidden" title="Copy this file into a class's Class files">Share</button>
@@ -292,10 +292,42 @@ tr.chg td{background:var(--changed)}
 
 <!-- Python side: runs student code and records every step with sys.settrace -->
 <script type="text/python" id="py-src">
-import sys, io, json, builtins, traceback, random
+import sys, io, json, builtins, traceback, random, os, shutil
 
 MAX_STEPS = 5000
 FILENAME = "<student>"
+WORK = "/home/pyodide/work"     # the program's folder: a copy of My files, so open() can use them
+MAX_WRITTEN = 50
+MAX_CHARS = 200000
+
+def _put_files(files):
+    os.chdir("/home/pyodide")       # the folder can't be removed while it is the current one
+    shutil.rmtree(WORK, ignore_errors=True)
+    os.makedirs(WORK)
+    for path, text in files.items():
+        full = os.path.join(WORK, path)
+        os.makedirs(os.path.dirname(full), exist_ok=True)
+        with open(full, "w", encoding="utf-8") as f:
+            f.write(text)
+    os.chdir(WORK)
+
+def _written(files):
+    # Text files the program made or changed (at most one folder deep, like My files).
+    out = {}
+    for d, _, names in os.walk(WORK):
+        rel = os.path.relpath(d, WORK)
+        if rel != "." and os.sep in rel:
+            continue
+        for n in names:
+            path = n if rel == "." else rel + "/" + n
+            try:
+                with open(os.path.join(d, n), encoding="utf-8") as f:
+                    text = f.read(MAX_CHARS + 1)
+            except (UnicodeDecodeError, OSError):
+                continue
+            if len(text) <= MAX_CHARS and files.get(path) != text and len(out) < MAX_WRITTEN:
+                out[path] = text
+    return out
 
 def _short(v, limit=120):
     try:
@@ -329,10 +361,12 @@ class _StepLimit(BaseException):
 class _NeedInput(BaseException):
     pass
 
-def run(code, answers_json, watches_json, seed, trace):
+def run(code, answers_json, watches_json, seed, trace, files_json):
     # The program is re-run from the start each time the student answers an input();
     # earlier answers are replayed from `lines`, and the fixed random seed keeps runs identical.
     watches = json.loads(watches_json)
+    files = json.loads(files_json)
+    _put_files(files)
     steps = []
     out = io.StringIO()
     lines = json.loads(answers_json)
@@ -412,6 +446,8 @@ def run(code, answers_json, watches_json, seed, trace):
         sys.stdout, sys.stderr = old_out, old_err
     result["output"] = out.getvalue()
     result["turtle"] = list(_turtle._cmds)
+    # Only a finished run counts: a run that stopped to wait for input() will be run again.
+    result["written"] = {} if result["needInput"] or result["limit"] else _written(files)
     return json.dumps(result)
 </script>
 
@@ -1785,7 +1821,7 @@ self.onmessage = async (e) => {
     try {
       try { await py.loadPackagesFromImports(m.code); } catch (_) {}
       const run = py.globals.get("run");
-      const json = run(m.code, JSON.stringify(m.answers), JSON.stringify(m.watches), m.seed, m.trace);
+      const json = run(m.code, JSON.stringify(m.answers), JSON.stringify(m.watches), m.seed, m.trace, JSON.stringify(m.files || {}));
       run.destroy();
       postMessage({ type: "result", id: m.id, result: JSON.parse(json) });
     } catch (err) {
@@ -2040,11 +2076,11 @@ for (const el of [$("#filelist"), $("#filesTitle")]) {
 // Returns a free path for `base` inside `folder` ("" = not in a folder).
 function uniqueName(base, within = files, folder = "") {
   base = base.replace(/[\\/:*?"<>|]/g, "").trim() || "untitled.py";
-  if (!/\.py$/i.test(base)) base += ".py";
+  if (!/\.\w+$/.test(base)) base += ".py";
   const key = n => joinPath(folder, n);
   if (!within[key(base)]) return key(base);
-  const stem = base.replace(/\.py$/i, "");
-  for (let i = 2; ; i++) if (!within[key(`${stem}${i}.py`)]) return key(`${stem}${i}.py`);
+  const ext = base.match(/\.\w+$/)[0], stem = base.slice(0, -ext.length);
+  for (let i = 2; ; i++) if (!within[key(`${stem}${i}${ext}`)]) return key(`${stem}${i}${ext}`);
 }
 $("#fNew").onclick = () => {
   saveCurrent(); endDebug();
@@ -2065,7 +2101,7 @@ function startRename() {
   const finish = ok => {
     if (done) return; done = true; renaming = false;
     let v = inp.value.trim();
-    if (ok && v && !/\.py$/i.test(v)) v += ".py";
+    if (ok && v && !/\.\w+$/.test(v)) v += ".py";
     if (ok && v && v !== base) {
       const nk = uniqueName(v, files, fo);
       saveCurrent();
@@ -2263,14 +2299,36 @@ function startWorker() {
   worker.onerror = e => setStatus("Worker error: " + e.message, "err");
   worker.postMessage({ type: "init", runner: $("#py-src").textContent, turtle: $("#turtle-src").textContent, pseudo: $("#pseudo-src").textContent });
 }
-function execute(trace, seed, answers) {
+function execute(trace, seed, answers, snap) {
   return new Promise(resolve => {
     const id = ++runId;
     pending = { id, resolve };
     setBusy(true); setStatus(trace ? "Recording steps…" : "Running…", "busy");
     busyTimer = setTimeout(() => setStatus("Still running — press Stop if it is stuck in a loop", "busy"), 2000);
-    worker.postMessage({ type: "run", id, code: cm.getValue(), answers, watches, seed, trace });
+    worker.postMessage({ type: "run", id, code: cm.getValue(), answers, watches, seed, trace, files: snap });
   });
+}
+
+// Programs can open() files: each run starts in a folder holding copies of My files (and, for a
+// class file, its class's files). Taken once per Run, so re-runs after input() start the same way.
+function fileSnap() {
+  const snap = {};
+  if (viewingClassFile) for (const f of classFiles) if (f.cls === viewingClassFile.cls) snap[joinPath(f.folder, f.name)] = f.code;
+  for (const [k, f] of Object.entries(files || {})) snap[k] = f.code;
+  return snap;
+}
+// Text files the program made or changed are saved into My files.
+function applyWritten(written) {
+  const keys = Object.keys(written || {}).filter(k => k.split("/").every(p => p && cleanFolder(p) === p) && files?.[k]?.code !== written[k]);
+  if (!keys.length || !files) return;
+  if (view && !view.isMe && !view.isClass) {
+    return banner(`The program wrote ${keys.join(", ")}, but files aren't saved while you are viewing someone else's files.`, 6000);
+  }
+  saveCurrent();
+  for (const k of keys) files[k] = { ...(files[k] || { bps: [] }), code: written[k] };
+  if (keys.includes(current) && !viewingClassFile) reloadEditor();
+  persist(); renderFiles();
+  banner(`Saved ${keys.join(", ")} in ${view && view.isClass ? "Class files" : "My files"}.`, 4000);
 }
 $("#btnStop").onclick = () => {
   if (waiting) {
@@ -2609,10 +2667,10 @@ const pseudo = (() => {
 const newSeed = () => Math.floor(Math.random() * 2 ** 31);
 $("#btnRun").onclick = async () => {
   endDebug(); clearMarks(); saveCurrent(); cancelWait();
-  const token = runToken, seed = newSeed(), answers = [];
+  const token = runToken, seed = newSeed(), answers = [], snap = fileSnap();
   let rerun = false;
   for (;;) {
-    const r = await execute(false, seed, answers);
+    const r = await execute(false, seed, answers, snap);
     if (!r || token !== runToken) return;
     drawing.play(r.turtle, rerun ? drawing.inked() : 0);   // after an input(), carry on from what is drawn
     rerun = true;
@@ -2624,6 +2682,7 @@ $("#btnRun").onclick = async () => {
     }
     showOutput(r.output, r.error);
     if (r.errorLine) markLine(r.errorLine, "cm-exc");
+    applyWritten(r.written);
     return;
   }
 };
@@ -2633,10 +2692,12 @@ async function startDebug(keepIdx, answers = []) {
   saveCurrent(); clearMarks(); cancelWait();
   const token = runToken;
   const seed = keepIdx != null && dbg ? dbg.seed : newSeed();
-  const r = await execute(true, seed, answers);
+  const snap = keepIdx != null && dbg ? dbg.snap : fileSnap();   // re-recording starts from the same files
+  const r = await execute(true, seed, answers, snap);
   if (!r || token !== runToken) return;
+  applyWritten(r.written);
   if (!r.steps.length) { endDebug(); showOutput(r.output, r.error); if (r.errorLine) markLine(r.errorLine, "cm-exc"); return; }
-  dbg = { ...r, seed, answers, watchCount: watches.length };
+  dbg = { ...r, seed, answers, snap, watchCount: watches.length };
   drawing.load(r.turtle);
   if (!$("main").classList.contains("debugging")) { $("main").classList.add("debugging"); cm.refresh(); }
   const tl = $("#timeline"); tl.max = r.steps.length - 1;
